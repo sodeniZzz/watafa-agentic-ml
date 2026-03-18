@@ -1,0 +1,6 @@
+pandas
+scikit-learn
+joblib
+python-dotenv
+langchain-openai
+langgraph
