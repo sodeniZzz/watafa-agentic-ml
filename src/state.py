@@ -20,6 +20,16 @@ class PipelineState(TypedDict):
     eda_validation_reports: list[str]
     eda_valid: bool
 
+    fe_attempts: int
+    fe_max_attempts: int
+    fe_feedback: str
+    fe_validation_reports: list[Path]
+    fe_valid: bool
+
+    processed_train_path: str
+    processed_test_path: str
+    feature_eng_report_path: str
+
 
 def create_initial_state(run_dir: Path) -> PipelineState:
     state: PipelineState = {
@@ -30,9 +40,18 @@ def create_initial_state(run_dir: Path) -> PipelineState:
 
         # EDA fields
         "eda_attempts": 0,
-        "eda_max_attempts": 2,
+        "eda_max_attempts": 1,
         "eda_feedback": None,
         "eda_validation_reports": [],
         "eda_valid": False,
+
+        "processed_train_path": None,
+        "processed_test_path": None,
+        "feature_eng_report_path": None,
+        "fe_attempts": 0,
+        "fe_max_attempts": 2,
+        "fe_feedback": None,
+        "fe_validation_reports": [],
+        "fe_valid": False,
     }
     return state
