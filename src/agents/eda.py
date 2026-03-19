@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def should_continue_after_eda_validation(state: PipelineState) -> str:
     if state.get("eda_valid", False) or state.get("eda_attempts", 0) >= state.get("eda_max_attempts", 2):
-        return "train"
+        return "feature_eng"   # go to feature engineering when EDA is done
     else:
         return "eda"
 

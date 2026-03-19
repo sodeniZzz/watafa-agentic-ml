@@ -17,6 +17,11 @@ from src.agents.eda import (
     run_eda_validator,
     should_continue_after_eda_validation,
 )
+from src.agents.feature_engineering import (
+    run_feature_eng_agent,
+    run_fe_validator,
+    should_continue_after_fe_validation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,10 @@ logger = logging.getLogger(__name__)
 def run_train_tool(state: PipelineState) -> PipelineState:
     logger.info("Train node started")
 
-    train_df = pd.read_csv(state["train_path"])
+    train_path = state.get("processed_train_path") or state["train_path"]
+    test_path = state.get("processed_test_path") or state["test_path"]
+
+    train_df = pd.read_csv(train_path)
     target_col = "target"
     feature_df = train_df.drop(columns=[target_col]).select_dtypes(include="number")
     fill_values = feature_df.median()
@@ -74,7 +82,10 @@ def run_submission_tool(state: PipelineState) -> PipelineState:
     feature_columns = model_bundle["feature_columns"]
     fill_values = model_bundle["fill_values"]
 
-    test_df = pd.read_csv(state["test_path"])
+    train_path = state.get("processed_train_path") or state["train_path"]
+    test_path = state.get("processed_test_path") or state["test_path"]
+
+    test_df = pd.read_csv(test_path)
     sample_submission = pd.read_csv(state["sample_submission_path"])
 
     x_test = test_df[feature_columns].fillna(fill_values)
@@ -116,6 +127,8 @@ def build_graph():
 
     graph_builder.add_node("eda", run_eda_agent)
     graph_builder.add_node("eda_validator", run_eda_validator)
+    graph_builder.add_node("feature_eng", run_feature_eng_agent)
+    graph_builder.add_node("fe_validator", run_fe_validator)   # new
     graph_builder.add_node("train", run_train_tool)
     graph_builder.add_node("evaluation", run_evaluation_tool)
     graph_builder.add_node("submission", run_submission_tool)
@@ -127,8 +140,17 @@ def build_graph():
         "eda_validator",
         should_continue_after_eda_validation,
         {
-            "train": "train",
+            "feature_eng": "feature_eng",
             "eda": "eda"
+        }
+    )
+    graph_builder.add_edge("feature_eng", "fe_validator")
+    graph_builder.add_conditional_edges(
+        "fe_validator",
+        should_continue_after_fe_validation,
+        {
+            "train": "train",
+            "feature_eng": "feature_eng"
         }
     )
     graph_builder.add_edge("train", "evaluation")
@@ -137,6 +159,7 @@ def build_graph():
     graph_builder.add_edge("report", END)
 
     return graph_builder.compile()
+
 
 def run_graph(state: PipelineState) -> PipelineState:
     logger.info("Graph execution started")
