@@ -12,57 +12,13 @@ from sklearn.model_selection import train_test_split
 from src.state import PipelineState
 from src.utils.llm_utils import invoke_llm
 
+from src.agents.eda import (
+    run_eda_agent,
+    run_eda_validator,
+    should_continue_after_eda_validation,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _build_eda_context(train_df: pd.DataFrame, test_df: pd.DataFrame) -> str:
-    missing_values = train_df.isna().sum().sort_values(ascending=False)
-    numeric_summary = train_df.describe(include="all").transpose().head(20).to_string()
-
-    context_parts = [
-        f"Train shape: {train_df.shape}",
-        f"Test shape: {test_df.shape}",
-        f"Train columns: {list(train_df.columns)}",
-        f"Test columns: {list(test_df.columns)}",
-        "Train dtypes:",
-        train_df.dtypes.to_string(),
-        "Top missing values in train:",
-        missing_values.head(20).to_string(),
-        "Train summary statistics:",
-        numeric_summary,
-    ]
-    return "\n\n".join(context_parts)
-
-
-def run_eda_agent(state: PipelineState) -> PipelineState:
-    logger.info("EDA node started")
-
-    train_df = pd.read_csv(state["train_path"]).sample(frac=0.2, random_state=42)
-    test_df = pd.read_csv(state["test_path"])
-    eda_context = _build_eda_context(train_df, test_df)
-
-    prompt = f"""
-You are an ML engineer doing EDA for a tabular Kaggle competition.
-
-Write a short EDA report in plain text.
-Focus on:
-- dataset size and structure
-- missing values
-- numeric features and target
-- possible preprocessing concerns
-- concise recommendations for training
-
-Data summary:
-{eda_context}
-""".strip()
-
-    eda_report = invoke_llm(prompt, temperature=0.0, max_tokens=1200)
-    report_path = state["run_dir"] / "reports" / "eda_summary.txt"
-    report_path.write_text(eda_report, encoding="utf-8")
-    logger.info("EDA report saved to %s", report_path)
-
-    return {**state, "eda_report_path": report_path}
 
 
 def run_train_tool(state: PipelineState) -> PipelineState:
@@ -159,20 +115,28 @@ def build_graph():
     graph_builder = StateGraph(PipelineState)
 
     graph_builder.add_node("eda", run_eda_agent)
+    graph_builder.add_node("eda_validator", run_eda_validator)
     graph_builder.add_node("train", run_train_tool)
     graph_builder.add_node("evaluation", run_evaluation_tool)
     graph_builder.add_node("submission", run_submission_tool)
     graph_builder.add_node("report", run_report_tool)
 
     graph_builder.set_entry_point("eda")
-    graph_builder.add_edge("eda", "train")
+    graph_builder.add_edge("eda", "eda_validator")
+    graph_builder.add_conditional_edges(
+        "eda_validator",
+        should_continue_after_eda_validation,
+        {
+            "train": "train",
+            "eda": "eda"
+        }
+    )
     graph_builder.add_edge("train", "evaluation")
     graph_builder.add_edge("evaluation", "submission")
     graph_builder.add_edge("submission", "report")
     graph_builder.add_edge("report", END)
 
     return graph_builder.compile()
-
 
 def run_graph(state: PipelineState) -> PipelineState:
     logger.info("Graph execution started")
