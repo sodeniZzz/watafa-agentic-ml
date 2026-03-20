@@ -9,19 +9,24 @@ load_dotenv()
 
 
 def get_openrouter_api_key() -> str:
-    api_key = os.getenv("OPENROUTER_API_KEY")
+    api_key = os.getenv("API_KEY")
     if not api_key:
-        raise ValueError(
-            "OPENROUTER_API_KEY is not set in the environment or .env file."
-        )
+        raise ValueError("API_KEY is not set in the environment or .env file.")
     return api_key
 
 
 def get_model_name() -> str:
-    model_name = os.getenv("OPENROUTER_MODEL")
+    model_name = os.getenv("MODEL_NAME")
     if not model_name:
-        raise ValueError("OPENROUTER_MODEL is not set in the environment or .env file.")
+        raise ValueError("MODEL_NAME is not set in the environment or .env file.")
     return model_name
+
+
+def get_url() -> str:
+    api = os.getenv("API_URL")
+    if not api:
+        raise ValueError("API_URL is not set in the environment or .env file.")
+    return api
 
 
 @lru_cache(maxsize=1)
@@ -29,11 +34,11 @@ def build_llm(
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
 ) -> ChatOpenAI:
-    """Create a ChatOpenAI client configured for OpenRouter."""
+    """Create a ChatOpenAI client."""
     return ChatOpenAI(
         model=get_model_name(),
         api_key=get_openrouter_api_key(),
-        base_url="https://openrouter.ai/api/v1",
+        base_url=get_url(),
         temperature=temperature,
         max_tokens=max_tokens,
     )
