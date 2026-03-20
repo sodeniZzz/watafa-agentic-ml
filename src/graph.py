@@ -2,8 +2,6 @@ import json
 import logging
 from pathlib import Path
 
-import joblib
-import pandas as pd
 from langgraph.graph import END, StateGraph
 
 from src.state import PipelineState
@@ -28,38 +26,9 @@ from src.agents.eval import (
     run_eval_validator,
     should_continue_after_eval_validation,
 )
+from src.agents.submission import run_submission_agent
 
 logger = logging.getLogger(__name__)
-
-
-def run_submission_tool(state: PipelineState) -> PipelineState:
-    logger.info("Submission node started")
-
-    if "model_path" not in state:
-        logger.error("Submission skipped: best model path is missing")
-        return state
-
-    model_bundle = joblib.load(state["model_path"])
-    model = model_bundle["model"]
-    feature_columns = model_bundle["feature_columns"]
-    fill_values = model_bundle["fill_values"]
-
-    test_path = state.get("processed_test_path") or state["test_path"]
-
-    test_df = pd.read_csv(test_path)
-    sample_submission = pd.read_csv(state["sample_submission_path"])
-
-    x_test = test_df[feature_columns].fillna(fill_values)
-    predictions = model.predict(x_test)
-
-    submission = sample_submission.copy()
-    submission[submission.columns[-1]] = predictions
-
-    submission_path = state["run_dir"] / "submission.csv"
-    submission.to_csv(submission_path, index=False)
-    logger.info("Submission saved to %s", submission_path)
-
-    return {**state, "submission_path": submission_path}
 
 
 def run_report_tool(state: PipelineState) -> PipelineState:
@@ -97,7 +66,7 @@ def build_graph():
     graph_builder.add_node("train_validator", run_train_validator)
     graph_builder.add_node("evaluation", run_eval_agent)
     graph_builder.add_node("eval_validator", run_eval_validator)
-    graph_builder.add_node("submission", run_submission_tool)
+    graph_builder.add_node("submission", run_submission_agent)
     graph_builder.add_node("report", run_report_tool)
 
     graph_builder.set_entry_point("eda")
@@ -105,19 +74,13 @@ def build_graph():
     graph_builder.add_conditional_edges(
         "eda_validator",
         should_continue_after_eda_validation,
-        {
-            "feature_eng": "feature_eng",
-            "eda": "eda"
-        }
+        {"feature_eng": "feature_eng", "eda": "eda"},
     )
     graph_builder.add_edge("feature_eng", "fe_validator")
     graph_builder.add_conditional_edges(
         "fe_validator",
         should_continue_after_fe_validation,
-        {
-            "train": "train",
-            "feature_eng": "feature_eng"
-        }
+        {"train": "train", "feature_eng": "feature_eng"},
     )
     graph_builder.add_edge("train", "train_validator")
     graph_builder.add_conditional_edges(
@@ -126,7 +89,7 @@ def build_graph():
         {
             "evaluation": "evaluation",
             "train": "train",
-        }
+        },
     )
     graph_builder.add_edge("evaluation", "eval_validator")
     graph_builder.add_conditional_edges(
@@ -135,7 +98,7 @@ def build_graph():
         {
             "submission": "submission",
             "evaluation": "evaluation",
-        }
+        },
     )
     graph_builder.add_edge("submission", "report")
     graph_builder.add_edge("report", END)

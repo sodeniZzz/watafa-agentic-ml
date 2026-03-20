@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 MODEL_FILE_NAMES = {
-    "linear_regression": "linear_regression.joblib",
+    "ridge": "ridge.joblib",
     "random_forest": "random_forest.joblib",
     "catboost": "catboost.joblib",
 }
@@ -29,31 +29,32 @@ Requirements:
 2. Use target column exactly named target.
 3. Recreate the same train/validation split with test_size=0.2 and random_state=42.
 4. Load these model bundles:
-   - {linear_regression_path}
+   - {ridge_path}
    - {random_forest_path}
    - {catboost_path}
 5. Build X by dropping only the target column and keeping the remaining columns exactly as features.
 6. For each model:
-   - use its feature_columns
-   - fill missing values with its fill_values
+   - load feature_columns from the bundle dictionary key "feature_columns"
+   - load fill_values from the bundle dictionary key "fill_values"
    - predict on the validation subset
    - calculate MSE
-7. Before selecting columns, verify that every feature in feature_columns exists in X_val.
+7. Do not read feature_columns or fill_values as model attributes. Read them only from the loaded bundle dict.
+8. Before selecting columns, verify that every feature in feature_columns exists in X_val.
    - if any are missing, raise a clear error that lists the missing feature names
-8. Choose the best model by minimum MSE.
-9. Save evaluation metrics to JSON:
+9. Choose the best model by minimum MSE.
+10. Save evaluation metrics to JSON:
    - {eval_metrics_path}
-10. Save the JSON in exactly this structure:
+11. Save the JSON in exactly this structure:
 {{
   "models": {{
-    "linear_regression": {{"mse": 0.0}},
+    "ridge": {{"mse": 0.0}},
     "random_forest": {{"mse": 0.0}},
     "catboost": {{"mse": 0.0}}
   }},
   "best_model_name": "random_forest",
   "best_model_path": "/absolute/path/to/model.joblib"
 }}
-11. Print a short summary with all MSE values and the best model.
+12. Print a short summary with all MSE values and the best model.
 """
 
 
@@ -70,7 +71,7 @@ def _generate_eval_code(state: PipelineState, feedback: str) -> str:
     prompt = EVAL_PROMPT_TEMPLATE.format(
         train_path=train_path,
         models_dir=models_dir,
-        linear_regression_path=models_dir / MODEL_FILE_NAMES["linear_regression"],
+        ridge_path=models_dir / MODEL_FILE_NAMES["ridge"],
         random_forest_path=models_dir / MODEL_FILE_NAMES["random_forest"],
         catboost_path=models_dir / MODEL_FILE_NAMES["catboost"],
         eval_metrics_path=eval_metrics_path,

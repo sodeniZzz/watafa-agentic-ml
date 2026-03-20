@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 MODEL_FILE_NAMES = {
-    "linear_regression": "linear_regression.joblib",
+    "ridge": "ridge.joblib",
     "random_forest": "random_forest.joblib",
     "catboost": "catboost.joblib",
 }
@@ -28,7 +28,7 @@ Requirements:
 3. Use only numeric features.
 4. Split the rows into train and validation sets with test_size=0.2 and random_state=42.
 5. Train exactly these models on the train split only:
-   - LinearRegression
+   - Ridge
    - RandomForestRegressor
    - CatBoostRegressor
 6. For each model, compute median fill values on the train split only and use them for training.
@@ -36,9 +36,14 @@ Requirements:
 8. Keep resource usage conservative:
    - use n_jobs=1 for sklearn models and tuning
    - do not use large parallel grids
-   - keep the search small and deterministic
+   - keep the search bounded and deterministic
 9. Do a very small hyperparameter tuning using only the train split:
-   - LinearRegression: fit one default model, no tuning needed
+   - Ridge: compare these candidates with 3-fold CV using neg_mean_squared_error and keep the best:
+     - Pipeline(StandardScaler(), Ridge(alpha=0.01))
+     - Pipeline(StandardScaler(), Ridge(alpha=0.1))
+     - Pipeline(StandardScaler(), Ridge(alpha=1.0))
+     - Pipeline(StandardScaler(), Ridge(alpha=10.0))
+     - Pipeline(StandardScaler(), Ridge(alpha=100.0))
    - RandomForestRegressor: tune at least these parameters:
      - n_estimators in [10, 20, 50, 100, 150, 200]
      - max_depth in [2, 4, 8, 16, 24, 32]
@@ -52,16 +57,19 @@ Requirements:
 10. Use a small cross-validation on the training split only to choose the best parameters.
 11. Prefer RandomizedSearchCV or a small manual random search instead of exhaustive full grid search.
 12. Keep the tuning bounded:
-   - RandomForestRegressor: around 10 sampled configurations
-   - CatBoostRegressor: around 10 sampled configurations
+   - RandomForestRegressor: around 12 sampled configurations
+   - CatBoostRegressor: around 12 sampled configurations
    - cv=3
    - random_state=42 where applicable
-13. Save model bundles with keys model, model_name, feature_columns, fill_values, best_params to:
-   - {linear_regression_path}
+13. For CatBoostRegressor:
+   - use verbose=0
+   - use allow_writing_files=False
+14. Save model bundles with keys model, model_name, feature_columns, fill_values, best_params to:
+   - {ridge_path}
    - {random_forest_path}
    - {catboost_path}
-14. Do not evaluate validation MSE in this step.
-15. Print a short summary of the split sizes, best parameters, and saved model files.
+15. Do not evaluate validation MSE in this step.
+16. Print a short summary of the split sizes, best parameters, and saved model files.
 
 Feature engineering report excerpt:
 {feature_report}
@@ -84,7 +92,7 @@ def _generate_train_code(state: PipelineState, feedback: str) -> str:
     models_dir = state["run_dir"] / "models"
     prompt = TRAIN_PROMPT_TEMPLATE.format(
         train_path=train_path,
-        linear_regression_path=models_dir / MODEL_FILE_NAMES["linear_regression"],
+        ridge_path=models_dir / MODEL_FILE_NAMES["ridge"],
         random_forest_path=models_dir / MODEL_FILE_NAMES["random_forest"],
         catboost_path=models_dir / MODEL_FILE_NAMES["catboost"],
         feature_report=feature_report,
@@ -110,7 +118,7 @@ def run_train_agent(state: PipelineState) -> PipelineState:
     code_path.write_text(code, encoding="utf-8")
     logger.info("Train code saved to %s", code_path)
 
-    execution_result = run_python_code(code, work_dir=code_dir, timeout=300)
+    execution_result = run_python_code(code, work_dir=code_dir, timeout=600)
 
     report_path = state["run_dir"] / "reports" / f"train_report_attempt_{new_attempt}.txt"
     report_path.parent.mkdir(parents=True, exist_ok=True)
