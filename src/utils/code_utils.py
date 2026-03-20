@@ -6,6 +6,16 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
+
+def extract_python_code(text: str) -> str:
+    code = text.strip()
+    if code.startswith("```python"):
+        code = code.split("```python", 1)[1]
+    if code.endswith("```"):
+        code = code.rsplit("```", 1)[0]
+    return code.strip()
+
+
 def run_python_code(
     code: str,
     work_dir: Optional[str] = None,

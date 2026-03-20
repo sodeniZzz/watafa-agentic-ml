@@ -4,7 +4,7 @@ from typing import TypedDict
 from src.utils.io_utils import ROOT_PATH
 
 
-class PipelineState(TypedDict):
+class PipelineState(TypedDict, total=False):
     run_dir: Path
     train_path: Path
     test_path: Path
@@ -13,6 +13,7 @@ class PipelineState(TypedDict):
     model_path: Path
     submission_path: Path
     metrics: dict[str, float]
+    best_model_name: str
 
     eda_attempts: int
     eda_max_attempts: int
@@ -30,6 +31,22 @@ class PipelineState(TypedDict):
     processed_test_path: str
     feature_eng_report_path: str
 
+    train_attempts: int
+    train_max_attempts: int
+    train_feedback: str
+    train_validation_reports: list[Path]
+    train_valid: bool
+    train_report_path: Path
+    candidate_model_paths: list[str]
+
+    eval_attempts: int
+    eval_max_attempts: int
+    eval_feedback: str
+    eval_validation_reports: list[Path]
+    eval_valid: bool
+    eval_report_path: Path
+    eval_metrics_path: Path
+
 
 def create_initial_state(run_dir: Path) -> PipelineState:
     state: PipelineState = {
@@ -40,7 +57,7 @@ def create_initial_state(run_dir: Path) -> PipelineState:
 
         # EDA fields
         "eda_attempts": 0,
-        "eda_max_attempts": 1,
+        "eda_max_attempts": 2,
         "eda_feedback": None,
         "eda_validation_reports": [],
         "eda_valid": False,
@@ -53,5 +70,17 @@ def create_initial_state(run_dir: Path) -> PipelineState:
         "fe_feedback": None,
         "fe_validation_reports": [],
         "fe_valid": False,
+
+        "train_attempts": 0,
+        "train_max_attempts": 2,
+        "train_feedback": None,
+        "train_validation_reports": [],
+        "train_valid": False,
+
+        "eval_attempts": 0,
+        "eval_max_attempts": 2,
+        "eval_feedback": None,
+        "eval_validation_reports": [],
+        "eval_valid": False,
     }
     return state
