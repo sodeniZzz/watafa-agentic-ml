@@ -4,5 +4,4 @@ joblib
 python-dotenv
 langchain-openai
 langgraph
-catboost
 kaggle

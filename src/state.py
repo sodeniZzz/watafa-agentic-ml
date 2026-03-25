@@ -9,6 +9,7 @@ class PipelineState(TypedDict, total=False):
     train_path: Path
     test_path: Path
     sample_submission_path: Path
+    target_column: str
     eda_report_path: Path
     model_path: Path
     submission_path: Path
@@ -37,7 +38,6 @@ class PipelineState(TypedDict, total=False):
     train_validation_reports: list[Path]
     train_valid: bool
     train_report_path: Path
-    candidate_model_paths: list[str]
 
     eval_attempts: int
     eval_max_attempts: int
@@ -54,10 +54,11 @@ def create_initial_state(run_dir: Path) -> PipelineState:
         "train_path": ROOT_PATH / "data" / "train.csv",
         "test_path": ROOT_PATH / "data" / "test.csv",
         "sample_submission_path": ROOT_PATH / "data" / "sample_submission.csv",
+        "target_column": "target",
 
         # EDA fields
         "eda_attempts": 0,
-        "eda_max_attempts": 2,
+        "eda_max_attempts": 3,
         "eda_feedback": None,
         "eda_validation_reports": [],
         "eda_valid": False,
@@ -66,19 +67,19 @@ def create_initial_state(run_dir: Path) -> PipelineState:
         "processed_test_path": None,
         "feature_eng_report_path": None,
         "fe_attempts": 0,
-        "fe_max_attempts": 2,
+        "fe_max_attempts": 3,
         "fe_feedback": None,
         "fe_validation_reports": [],
         "fe_valid": False,
 
         "train_attempts": 0,
-        "train_max_attempts": 2,
+        "train_max_attempts": 3,
         "train_feedback": None,
         "train_validation_reports": [],
         "train_valid": False,
 
         "eval_attempts": 0,
-        "eval_max_attempts": 2,
+        "eval_max_attempts": 3,
         "eval_feedback": None,
         "eval_validation_reports": [],
         "eval_valid": False,

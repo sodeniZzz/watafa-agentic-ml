@@ -60,8 +60,8 @@ def build_graph():
 
     graph_builder.add_node("eda", run_eda_agent)
     graph_builder.add_node("eda_validator", run_eda_validator)
-    graph_builder.add_node("feature_eng", run_feature_eng_agent)
-    graph_builder.add_node("fe_validator", run_fe_validator)
+    graph_builder.add_node("feature_engineering", run_feature_eng_agent)
+    graph_builder.add_node("feature_engineering_validator", run_fe_validator)
     graph_builder.add_node("train", run_train_agent)
     graph_builder.add_node("train_validator", run_train_validator)
     graph_builder.add_node("evaluation", run_eval_agent)
@@ -74,13 +74,13 @@ def build_graph():
     graph_builder.add_conditional_edges(
         "eda_validator",
         should_continue_after_eda_validation,
-        {"feature_eng": "feature_eng", "eda": "eda"},
+        {"feature_engineering": "feature_engineering", "eda": "eda"},
     )
-    graph_builder.add_edge("feature_eng", "fe_validator")
+    graph_builder.add_edge("feature_engineering", "feature_engineering_validator")
     graph_builder.add_conditional_edges(
-        "fe_validator",
+        "feature_engineering_validator",
         should_continue_after_fe_validation,
-        {"train": "train", "feature_eng": "feature_eng"},
+        {"train": "train", "feature_engineering": "feature_engineering"},
     )
     graph_builder.add_edge("train", "train_validator")
     graph_builder.add_conditional_edges(

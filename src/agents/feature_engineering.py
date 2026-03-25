@@ -1,37 +1,23 @@
-import json
+"""FEATURE ENGINEERING AGENT"""
+
 import logging
 from pathlib import Path
 
-import joblib
-import pandas as pd
-from langgraph.graph import END, StateGraph
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
 from src.state import PipelineState
-from src.utils.llm_utils import invoke_llm
 from src.utils.code_utils import (
+    extract_python_code,
     run_python_code,
 )
+from src.utils.llm_utils import invoke_llm
 
 logger = logging.getLogger(__name__)
 
-def should_continue_after_fe_validation(state: PipelineState) -> str:
-    if state.get("fe_valid", False) or state.get("fe_attempts", 0) >= state.get("fe_max_attempts", 2):
-        return "train"
-    else:
-        return "feature_eng"
 
-def _generate_feature_eng_code(state: PipelineState, feedback: str = None) -> str:
-    eda_report_path = state["eda_report_path"]
-    eda_summary = eda_report_path.read_text(encoding="utf-8")[:2000] if eda_report_path.exists() else "EDA report not available."
-
-    prompt = f"""You are a feature engineering expert. Based on the EDA report below, write Python code to create new features for the training and test datasets.
+FEATURE_ENGINEERING_PROMPT_TEMPLATE = """You are a feature engineering expert. Based on the EDA report below, write Python code to create new features for the training and test datasets.
 
 The data files:
-- Train: {state['train_path']}
-- Test: {state['test_path']}
+- Train: {train_path}
+- Test: {test_path}
 
 Your code should:
 1. Load train and test CSVs using pandas.
@@ -41,28 +27,47 @@ Your code should:
    - Encode categorical variables if appropriate (e.g., one-hot encoding for low-cardinality, label encoding for high cardinality).
    - You may also create interaction features, polynomial features, or date-based features if applicable.
 3. Save the processed datasets as new CSV files:
-   - Train: {state['run_dir'] / 'processed_train.csv'}
-   - Test: {state['run_dir'] / 'processed_test.csv'}
+   - Train: {processed_train_path}
+   - Test: {processed_test_path}
 4. Print a brief summary of what has been added / changed
     - New features - their pandas type, type(Categorical / Numeric / ...), description, short explanation how they were calculated
-    - New shapes of Train, Test dfs 
+    - New shapes of Train, Test dfs
 
 EDA report excerpt:
 {eda_summary}
 """
+
+
+def should_continue_after_fe_validation(state: PipelineState) -> str:
+    if state.get("fe_valid", False) or state.get("fe_attempts", 0) >= state.get(
+        "fe_max_attempts", 2
+    ):
+        return "train"
+    else:
+        return "feature_engineering"
+
+
+def _generate_feature_eng_code(state: PipelineState, feedback: str = None) -> str:
+    eda_report_path = state["eda_report_path"]
+    eda_summary = (
+        eda_report_path.read_text(encoding="utf-8")[:2000]
+        if eda_report_path.exists()
+        else "EDA report not available."
+    )
+
+    prompt = FEATURE_ENGINEERING_PROMPT_TEMPLATE.format(
+        train_path=state["train_path"],
+        test_path=state["test_path"],
+        processed_train_path=state["run_dir"] / "processed_train.csv",
+        processed_test_path=state["run_dir"] / "processed_test.csv",
+        eda_summary=eda_summary,
+    )
     if feedback:
         prompt += f"\nPrevious attempt had the following issues. Please fix them:\n{feedback}\n"
 
     prompt += "\nWrite only the Python code, no explanations. The code must be self-contained and ready to execute."
+    return extract_python_code(invoke_llm(prompt))
 
-    response = invoke_llm(prompt)
-    code = response.strip()
-    # Remove markdown code fences if present
-    if code.startswith("```python"):
-        code = code.split("```python")[1]
-    if code.endswith("```"):
-        code = code.rsplit("```", 1)[0]
-    return code.strip()
 
 def run_feature_eng_agent(state: PipelineState) -> PipelineState:
     logger.info("Feature engineering node started")
@@ -81,7 +86,9 @@ def run_feature_eng_agent(state: PipelineState) -> PipelineState:
     logger.info("Feature engineering code saved to %s", code_path)
 
     # Execute code
-    execution_result = run_python_code(code, work_dir=state["run_dir"] / "code", timeout=120)
+    execution_result = run_python_code(
+        code_path, work_dir=state["run_dir"] / "code", timeout=120
+    )
 
     # Save execution report
     report_content = f"""STDOUT:
@@ -92,7 +99,9 @@ STDERR:
 
 Return code: {execution_result['returncode']}
 """
-    report_path = state["run_dir"] / "reports" / f"feature_eng_report_attempt_{new_attempt}.txt"
+    report_path = (
+        state["run_dir"] / "reports" / f"feature_eng_report_attempt_{new_attempt}.txt"
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report_content, encoding="utf-8")
     logger.info("Feature engineering report saved to %s", report_path)
@@ -101,16 +110,19 @@ Return code: {execution_result['returncode']}
     processed_test = state["run_dir"] / "processed_test.csv"
 
     new_state = dict(state)
-    new_state.update({
-        "fe_attempts": new_attempt,
-        "processed_train_path": processed_train if processed_train.exists() else None,
-        "processed_test_path": processed_test if processed_test.exists() else None,
-        "feature_eng_report_path": report_path,
-        "fe_valid": False,   # not validated yet
-        # Keep feedback (validator will overwrite)
-    })
+    new_state.update(
+        {
+            "fe_attempts": new_attempt,
+            "processed_train_path": (
+                processed_train if processed_train.exists() else None
+            ),
+            "processed_test_path": processed_test if processed_test.exists() else None,
+            "feature_eng_report_path": report_path,
+            "fe_valid": False,  # not validated yet
+            # Keep feedback (validator will overwrite)
+        }
+    )
     return new_state
-
 
 
 def run_fe_validator(state: PipelineState) -> PipelineState:
@@ -131,10 +143,18 @@ def run_fe_validator(state: PipelineState) -> PipelineState:
         feedback.append("Processed test file not found.")
 
     # If files exist, optionally check they are non‑empty
-    if processed_train and Path(processed_train).exists() and Path(processed_train).stat().st_size == 0:
+    if (
+        processed_train
+        and Path(processed_train).exists()
+        and Path(processed_train).stat().st_size == 0
+    ):
         valid = False
         feedback.append("Processed train file is empty.")
-    if processed_test and Path(processed_test).exists() and Path(processed_test).stat().st_size == 0:
+    if (
+        processed_test
+        and Path(processed_test).exists()
+        and Path(processed_test).stat().st_size == 0
+    ):
         valid = False
         feedback.append("Processed test file is empty.")
 
@@ -151,12 +171,18 @@ def run_fe_validator(state: PipelineState) -> PipelineState:
         valid = False
         feedback.append("Execution report missing.")
 
-    feedback_text = "\n".join(feedback) if feedback else "Feature engineering looks good."
+    feedback_text = (
+        "\n".join(feedback) if feedback else "Feature engineering looks good."
+    )
 
     # Save validation report
     attempt = state.get("fe_attempts", 0)
-    val_report_path = state["run_dir"] / "reports" / f"fe_validation_attempt_{attempt}.txt"
-    val_report_path.write_text(f"VALID: {valid}\nFEEDBACK:\n{feedback_text}", encoding="utf-8")
+    val_report_path = (
+        state["run_dir"] / "reports" / f"fe_validation_attempt_{attempt}.txt"
+    )
+    val_report_path.write_text(
+        f"VALID: {valid}\nFEEDBACK:\n{feedback_text}", encoding="utf-8"
+    )
 
     new_state = dict(state)
     new_state["fe_valid"] = valid

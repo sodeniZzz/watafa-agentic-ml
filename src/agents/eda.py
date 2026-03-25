@@ -1,27 +1,36 @@
-"""EDA AGENT ---- PLAN -> CODE -> EXECUTE"""
+"""EDA AGENT"""
 
-import json
 import logging
 from pathlib import Path
 
-import joblib
-import pandas as pd
-from langgraph.graph import END, StateGraph
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
 from src.state import PipelineState
-from src.utils.llm_utils import invoke_llm
 from src.utils.code_utils import (
+    extract_python_code,
     run_python_code,
 )
+from src.utils.llm_utils import invoke_llm
 
 logger = logging.getLogger(__name__)
 
+
+EDA_PROMPT_TEMPLATE = """You are a data analysis expert. Write Python code for Exploratory Data Analysis (EDA) for the training dataset.
+The data is located in the file: {train_path}
+There is also a test file (you can use it for comparison): {test_path}
+
+The code should perform the following tasks:
+- Load the data using pandas.
+- Output basic information: shape, columns, dtypes, number of missing values, descriptive statistics for numeric columns.
+- For numeric features, calculate and output: number of unique values, min/max, quantiles.
+- For categorical features, output unique values (if there are fewer than 20).
+- Output a brief textual summary (key observations) to stdout.
+
+Column information (first 5 rows):
+{columns_str}
+"""
+
 def should_continue_after_eda_validation(state: PipelineState) -> str:
     if state.get("eda_valid", False) or state.get("eda_attempts", 0) >= state.get("eda_max_attempts", 2):
-        return "feature_eng"   # go to feature engineering when EDA is done
+        return "feature_engineering"
     else:
         return "eda"
 
@@ -39,20 +48,11 @@ def _generate_eda_code(state, feedback=None):
     except Exception as e:
         columns_str = f"Не удалось загрузить образец: {e}"
 
-    prompt = f"""You are a data analysis expert. Write Python code for Exploratory Data Analysis (EDA) for the training dataset.
-The data is located in the file: {state['train_path']}
-There is also a test file (you can use it for comparison): {state['test_path']}
-
-The code should perform the following tasks:
-- Load the data using pandas.
-- Output basic information: shape, columns, dtypes, number of missing values, descriptive statistics for numeric columns.
-- For numeric features, calculate and output: number of unique values, min/max, quantiles.
-- For categorical features, output unique values (if there are fewer than 20).
-- Output a brief textual summary (key observations) to stdout.
-
-Column information (first 5 rows):
-{columns_str}
-"""
+    prompt = EDA_PROMPT_TEMPLATE.format(
+        train_path=state["train_path"],
+        test_path=state["test_path"],
+        columns_str=columns_str,
+    )
     if feedback:
         prompt += f"""
 The previous EDA attempt had the following feedback. Please improve the code accordingly:
@@ -62,15 +62,7 @@ The previous EDA attempt had the following feedback. Please improve the code acc
     prompt += """
 Write only the code, without any additional explanations. The code should be ready to execute as is.
 """
-    response = invoke_llm(prompt)
-
-    code = response.strip()
-    if code.startswith("```python"):
-        code = code.split("```python")[1]
-    if code.endswith("```"):
-        code = code.rsplit("```", 1)[0]
-    code = code.strip()
-    return code
+    return extract_python_code(invoke_llm(prompt))
 
 
 
@@ -158,7 +150,7 @@ def run_eda_agent(state: PipelineState) -> PipelineState:
     code_path.write_text(code, encoding="utf-8")
 
     execution_result = run_python_code(
-        code,
+        code_path,
         state["run_dir"] / "code",
     )
 
