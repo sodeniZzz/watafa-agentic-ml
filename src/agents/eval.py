@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from src.state import PipelineState
@@ -62,10 +63,11 @@ def should_continue_after_eval_validation(state: PipelineState) -> str:
     return "evaluation"
 
 
-def _generate_eval_code(state: PipelineState, feedback: str) -> str:
+def _generate_eval_code(state: PipelineState, feedback: str):
     train_path = state["processed_train_path"] or state["train_path"]
-    eval_metrics_path = state["run_dir"] / "reports" / "evaluation_metrics.json"
-    model_path = state["run_dir"] / "models" / MODEL_FILE_NAME
+    stage_dir = state["run_dir"] / "evaluation"
+    eval_metrics_path = stage_dir / "evaluation_metrics.json"
+    model_path = state["run_dir"] / "train" / MODEL_FILE_NAME
     prompt = EVAL_PROMPT_TEMPLATE.format(
         train_path=train_path,
         target_column=state["target_column"],
@@ -76,9 +78,10 @@ def _generate_eval_code(state: PipelineState, feedback: str) -> str:
         prompt += f"\nPrevious attempt feedback:\n{feedback}\n"
 
     prompt += "\nWrite only executable Python code. No explanations."
-    code = extract_python_code(invoke_llm(prompt))
+    llm_result = invoke_llm(prompt)
+    code = extract_python_code(llm_result["text"])
     code = code.replace("model_bundle.predict(", 'model_bundle["model"].predict(')
-    return code
+    return code, llm_result["tokens_in"], llm_result["tokens_out"]
 
 
 def run_eval_agent(state: PipelineState) -> PipelineState:
@@ -87,47 +90,38 @@ def run_eval_agent(state: PipelineState) -> PipelineState:
     new_attempt = state["eval_attempts"] + 1
     logger.info("Evaluation attempt %s", new_attempt)
 
-    code = _generate_eval_code(state, state["eval_feedback"])
+    start = time.time()
+    code, tokens_in, tokens_out = _generate_eval_code(state, state["eval_feedback"])
 
-    code_dir = state["run_dir"] / "code"
-    code_dir.mkdir(parents=True, exist_ok=True)
-    code_path = code_dir / f"eval_attempt_{new_attempt}.py"
+    stage_dir = state["run_dir"] / "evaluation"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
     logger.info("Evaluation code saved to %s", code_path)
 
-    execution_result = run_python_code(code_path, work_dir=code_dir, timeout=300)
+    execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=300)
+    duration = time.time() - start
 
-    report_path = (
-        state["run_dir"] / "reports" / f"eval_report_attempt_{new_attempt}.txt"
+    # Log to stage report
+    state["eval_report"].log_attempt(
+        attempt=new_attempt, duration_sec=duration,
+        tokens_in=tokens_in, tokens_out=tokens_out,
+        returncode=execution_result["returncode"],
+        stdout=execution_result["stdout"],
+        stderr=execution_result["stderr"],
+        error=execution_result["error"],
     )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_content = f"""STDOUT:
-{execution_result['stdout']}
 
-STDERR:
-{execution_result['stderr']}
-
-Return code: {execution_result['returncode']}
-
-Error: {execution_result['error']}
-"""
-    report_path.write_text(report_content, encoding="utf-8")
-    logger.info("Evaluation report saved to %s", report_path)
-
-    eval_metrics_path = state["run_dir"] / "reports" / "evaluation_metrics.json"
-    eval_metrics = {}
-    if eval_metrics_path.exists():
-        eval_metrics = json.loads(eval_metrics_path.read_text(encoding="utf-8"))
+    eval_metrics_path = stage_dir / "evaluation_metrics.json"
 
     next_state = {
         **state,
         "eval_attempts": new_attempt,
-        "eval_report_path": report_path,
-        "eval_metrics_path": eval_metrics_path if eval_metrics_path.exists() else None,
         "eval_valid": False,
     }
 
-    if eval_metrics:
+    if eval_metrics_path.exists():
+        eval_metrics = json.loads(eval_metrics_path.read_text(encoding="utf-8"))
         next_state["best_model_name"] = MODEL_NAME
         next_state["model_path"] = Path(eval_metrics["best_model_path"])
         next_state["metrics"] = {"mse": eval_metrics["models"][MODEL_NAME]["mse"]}
@@ -141,26 +135,19 @@ def run_eval_validator(state: PipelineState) -> PipelineState:
     valid = True
     feedback = []
 
-    report_path = state["eval_report_path"]
-    metrics_path = state["eval_metrics_path"]
+    last = state["eval_report"].last_attempt
+    metrics_path = state["run_dir"] / "evaluation" / "evaluation_metrics.json"
 
-    if not report_path.exists():
+    if last.get("returncode", 0) != 0:
         valid = False
-        feedback.append("Evaluation execution report is missing.")
-    else:
-        report = report_path.read_text(encoding="utf-8")
-        if (
-            "Traceback" in report
-            or "Return code: -1" in report
-            or "Return code: 1" in report
-        ):
-            valid = False
-            feedback.append("Evaluation code execution failed.")
-        if "Error:" in report and "Error: None" not in report:
-            valid = False
-            feedback.append("Evaluation execution returned an error.")
+        feedback.append("Evaluation code execution failed.")
+        if last.get("stderr"):
+            feedback.append(f"Stderr:\n{last['stderr'][-1000:]}")
+    if last.get("error"):
+        valid = False
+        feedback.append(f"Evaluation error: {last['error']}")
 
-    if not metrics_path or not metrics_path.exists():
+    if not metrics_path.exists():
         valid = False
         feedback.append("Evaluation metrics JSON was not created.")
     else:
@@ -172,7 +159,7 @@ def run_eval_validator(state: PipelineState) -> PipelineState:
             feedback.append("Evaluation metrics JSON could not be parsed.")
 
         model_metrics = metrics.get("models", {})
-        if MODEL_NAME not in model_metrics or "mse" not in model_metrics[MODEL_NAME]:
+        if MODEL_NAME not in model_metrics or "mse" not in model_metrics.get(MODEL_NAME, {}):
             valid = False
             feedback.append("MSE for RandomForest is missing.")
         best_model_path = metrics.get("best_model_path")
@@ -185,21 +172,11 @@ def run_eval_validator(state: PipelineState) -> PipelineState:
 
     feedback_text = "\n".join(feedback) if feedback else "Evaluation looks good."
 
-    validation_report_path = (
-        state["run_dir"]
-        / "reports"
-        / f"eval_validation_attempt_{state['eval_attempts']}.txt"
-    )
-    validation_report_path.write_text(
-        f"VALID: {valid}\nFEEDBACK:\n{feedback_text}",
-        encoding="utf-8",
-    )
+    state["eval_report"].log_validation(valid, feedback_text)
 
     logger.info("Evaluation validation completed. Valid: %s", valid)
     return {
         **state,
-        "eval_validation_reports": state["eval_validation_reports"]
-        + [validation_report_path],
         "eval_feedback": feedback_text,
         "eval_valid": valid,
     }

@@ -1,6 +1,4 @@
-import json
 import logging
-from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
@@ -27,32 +25,9 @@ from src.agents.eval import (
     should_continue_after_eval_validation,
 )
 from src.agents.submission import run_submission_agent
+from src.agents.report import run_report_agent
 
 logger = logging.getLogger(__name__)
-
-
-def run_report_tool(state: PipelineState) -> PipelineState:
-    logger.info("Report node started")
-
-    eda_report = Path(state["eda_report_path"]).read_text(encoding="utf-8")
-    metrics = state.get("metrics", {})
-    model_path = state.get("model_path", "N/A")
-    submission_path = state.get("submission_path", "N/A")
-    final_report = "\n\n".join(
-        [
-            "Final Pipeline Report",
-            f"EDA report path: {state['eda_report_path']}",
-            eda_report,
-            f"Validation metrics: {json.dumps(metrics, ensure_ascii=False)}",
-            f"Model path: {model_path}",
-            f"Submission path: {submission_path}",
-        ]
-    )
-
-    report_path = state["run_dir"] / "reports" / "final_report.txt"
-    report_path.write_text(final_report, encoding="utf-8")
-    logger.info("Final report saved to %s", report_path)
-    return state
 
 
 def build_graph():
@@ -67,7 +42,7 @@ def build_graph():
     graph_builder.add_node("evaluation", run_eval_agent)
     graph_builder.add_node("eval_validator", run_eval_validator)
     graph_builder.add_node("submission", run_submission_agent)
-    graph_builder.add_node("report", run_report_tool)
+    graph_builder.add_node("report", run_report_agent)
 
     graph_builder.set_entry_point("eda")
     graph_builder.add_edge("eda", "eda_validator")

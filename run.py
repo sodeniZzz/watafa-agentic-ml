@@ -15,8 +15,7 @@ def create_run_dir() -> Path:
     run_id = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     run_dir = ROOT_PATH / "artifacts" / run_id
 
-    for subdir in ("reports", "models", "code"):
-        (run_dir / subdir).mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     return run_dir
 

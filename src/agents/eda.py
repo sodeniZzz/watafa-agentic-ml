@@ -1,6 +1,8 @@
 """EDA AGENT"""
 
+import json
 import logging
+import time
 from pathlib import Path
 
 from src.state import PipelineState
@@ -27,6 +29,34 @@ The code should perform the following tasks:
 Column information (first 5 rows):
 {columns_str}
 """
+
+EDA_VALIDATOR_PROMPT_TEMPLATE = """You are an expert data analyst validating an EDA report.
+
+The EDA was supposed to:
+- Load data with pandas
+- Output basic info: shape, columns, dtypes, missing values, descriptive statistics for numeric columns
+- For numeric features: unique values count, min/max, quantiles
+- For categorical features: output unique values (if <20)
+- Output a brief textual summary
+
+Here is the actual EDA output:
+{eda_output}
+
+Please evaluate:
+1. Did the code execute without errors? (Check for tracebacks or error messages in the output)
+2. Does the output contain all the required information? If something is missing, list what's missing.
+3. Are there any obvious issues or areas for improvement?
+
+Provide your assessment in the following JSON format:
+{{
+    "valid": true/false,
+    "feedback": "Detailed feedback on what's missing or what could be improved. If valid, you can say 'EDA looks good.'",
+    "missing_elements": ["list", "of", "missing", "items"] (optional)
+}}
+
+Respond only with the JSON, no other text.
+"""
+
 
 def should_continue_after_eda_validation(state: PipelineState) -> str:
     if state.get("eda_valid", False) or state.get("eda_attempts", 0) >= state.get("eda_max_attempts", 2):
@@ -62,78 +92,8 @@ The previous EDA attempt had the following feedback. Please improve the code acc
     prompt += """
 Write only the code, without any additional explanations. The code should be ready to execute as is.
 """
-    return extract_python_code(invoke_llm(prompt))
-
-
-
-def run_eda_validator(state: PipelineState) -> PipelineState:
-    logger.info("EDA validator node started")
-
-    report_path = state.get("eda_report_path")
-    if not report_path or not Path(report_path).exists():
-        logger.error("EDA report not found")
-        feedback = "EDA report file not found. Please regenerate EDA code."
-        valid = False
-        validation_report_path = None
-    else:
-        report_content = Path(report_path).read_text(encoding="utf-8")
-
-        # Use LLM to evaluate the EDA output
-        prompt = f"""You are an expert data analyst validating an EDA report.
-
-The EDA was supposed to:
-- Load data with pandas
-- Output basic info: shape, columns, dtypes, missing values, descriptive statistics for numeric columns
-- For numeric features: unique values count, min/max, quantiles
-- For categorical features: output unique values (if <20)
-- Output a brief textual summary
-
-Here is the actual EDA output (including stdout, stderr and return code):
-{report_content}
-
-Please evaluate:
-1. Did the code execute without errors? (Check for tracebacks or error messages in the output)
-2. Does the output contain all the required information? If something is missing, list what's missing.
-3. Are there any obvious issues or areas for improvement?
-
-Provide your assessment in the following JSON format:
-{{
-    "valid": true/false,
-    "feedback": "Detailed feedback on what's missing or what could be improved. If valid, you can say 'EDA looks good.'",
-    "missing_elements": ["list", "of", "missing", "items"] (optional)
-}}
-
-Respond only with the JSON, no other text.
-"""
-        response = invoke_llm(prompt)
-        try:
-            import json
-            validation = json.loads(response)
-            valid = validation.get("valid", False)
-            feedback = validation.get("feedback", "No feedback provided.")
-        except Exception:
-            logger.warning("Failed to parse validator LLM response, assuming valid")
-            valid = True
-            feedback = "Validator could not parse response, proceeding."
-
-    # Save validation report
-    attempt = state.get("eda_attempts", 0)   # current attempt (after EDA ran)
-    validation_dir = state["run_dir"] / "reports"
-    validation_dir.mkdir(parents=True, exist_ok=True)
-    validation_report_path = validation_dir / f"eda_validation_attempt_{attempt}.txt"
-    validation_report_path.write_text(f"VALID: {valid}\nFEEDBACK:\n{feedback}", encoding="utf-8")
-
-    # Update state
-    new_state = dict(state)
-    new_state["eda_valid"] = valid
-    new_state["eda_feedback"] = feedback
-    reports = new_state.get("eda_validation_reports", [])
-    reports.append(validation_report_path)
-    new_state["eda_validation_reports"] = reports
-
-    logger.info(f"EDA validation completed. Valid: {valid}")
-    return new_state
-
+    llm_result = invoke_llm(prompt)
+    return extract_python_code(llm_result["text"]), llm_result["tokens_in"], llm_result["tokens_out"]
 
 
 def run_eda_agent(state: PipelineState) -> PipelineState:
@@ -143,30 +103,74 @@ def run_eda_agent(state: PipelineState) -> PipelineState:
     new_attempt = current + 1
     logger.info(f"EDA attempt {new_attempt}")
 
+    start = time.time()
     feedback = state.get("eda_feedback")
-    code = _generate_eda_code(state, feedback)
+    code, tokens_in, tokens_out = _generate_eda_code(state, feedback)
 
-    code_path = state["run_dir"] / "code" / f"eda_attempt_{new_attempt}.py"
+    stage_dir = state["run_dir"] / "eda"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
 
-    execution_result = run_python_code(
-        code_path,
-        state["run_dir"] / "code",
+    execution_result = run_python_code(code_path, stage_dir)
+    duration = time.time() - start
+
+    # Save clean stdout for next agent
+    output_path = stage_dir / "eda_output.txt"
+    output_path.write_text(execution_result["stdout"], encoding="utf-8")
+
+    # Log to stage report
+    state["eda_report"].log_attempt(
+        attempt=new_attempt, duration_sec=duration,
+        tokens_in=tokens_in, tokens_out=tokens_out,
+        returncode=execution_result["returncode"],
+        stdout=execution_result["stdout"],
+        stderr=execution_result["stderr"],
+        error=execution_result["error"],
     )
 
-    report_content = f"""STDOUT:
-{execution_result['stdout']}
-
-STDERR:
-{execution_result['stderr']}
-
-Return code: {execution_result['returncode']}
-"""
-    report_path = state["run_dir"] / "reports" / f"eda_summary_attempt_{new_attempt}.txt"
-    report_path.write_text(report_content, encoding="utf-8")
-    logger.info("EDA report saved to %s", report_path)
+    logger.info("EDA output saved to %s", output_path)
 
     new_state = dict(state)
     new_state["eda_attempts"] = new_attempt
-    new_state["eda_report_path"] = report_path
+    new_state["eda_output_path"] = output_path
+    return new_state
+
+
+def run_eda_validator(state: PipelineState) -> PipelineState:
+    logger.info("EDA validator node started")
+
+    output_path = state.get("eda_output_path")
+    if not output_path or not Path(output_path).exists():
+        logger.error("EDA output not found")
+        new_state = dict(state)
+        new_state["eda_valid"] = False
+        new_state["eda_feedback"] = "EDA output file not found. Please regenerate EDA code."
+        return new_state
+
+    eda_output = Path(output_path).read_text(encoding="utf-8")
+    # Also include stderr from last attempt for error checking
+    last = state["eda_report"].last_attempt
+    if last.get("stderr"):
+        eda_output += f"\n\nSTDERR:\n{last['stderr']}"
+    if last.get("returncode", 0) != 0:
+        eda_output += f"\n\nReturn code: {last['returncode']}"
+
+    prompt = EDA_VALIDATOR_PROMPT_TEMPLATE.format(eda_output=eda_output)
+    response = invoke_llm(prompt)
+    try:
+        validation = json.loads(response["text"])
+        valid = validation.get("valid", False)
+        feedback = validation.get("feedback", "No feedback provided.")
+    except Exception:
+        logger.warning("Failed to parse validator LLM response, assuming valid")
+        valid = True
+        feedback = "Validator could not parse response, proceeding."
+
+    new_state = dict(state)
+    new_state["eda_valid"] = valid
+    new_state["eda_feedback"] = feedback
+    state["eda_report"].log_validation(valid, feedback)
+
+    logger.info(f"EDA validation completed. Valid: {valid}")
     return new_state
