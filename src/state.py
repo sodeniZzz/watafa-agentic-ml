@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from src.utils.io_utils import ROOT_PATH
+from src.utils.metrics_utils import StageReport
 
 
 class PipelineState(TypedDict, total=False):
@@ -10,78 +11,78 @@ class PipelineState(TypedDict, total=False):
     test_path: Path
     sample_submission_path: Path
     target_column: str
-    eda_report_path: Path
     model_path: Path
     submission_path: Path
     metrics: dict[str, float]
     best_model_name: str
 
+    # StageReport objects (one per agent)
+    eda_report: Any
+    fe_report: Any
+    train_report: Any
+    eval_report: Any
+    submission_report: Any
+
+    # Clean content paths for next agent
+    eda_output_path: Path
+    feature_summary_path: Path
+
+    # EDA
     eda_attempts: int
     eda_max_attempts: int
     eda_feedback: str
-    eda_validation_reports: list[str]
     eda_valid: bool
 
+    # Feature engineering
     fe_attempts: int
     fe_max_attempts: int
     fe_feedback: str
-    fe_validation_reports: list[Path]
     fe_valid: bool
-
     processed_train_path: str
     processed_test_path: str
-    feature_eng_report_path: str
 
+    # Train
     train_attempts: int
     train_max_attempts: int
     train_feedback: str
-    train_validation_reports: list[Path]
     train_valid: bool
-    train_report_path: Path
 
+    # Eval
     eval_attempts: int
     eval_max_attempts: int
     eval_feedback: str
-    eval_validation_reports: list[Path]
     eval_valid: bool
-    eval_report_path: Path
-    eval_metrics_path: Path
 
 
 def create_initial_state(run_dir: Path) -> PipelineState:
-    state: PipelineState = {
-        "run_dir": Path(run_dir),
+    run_dir = Path(run_dir)
+    return {
+        "run_dir": run_dir,
         "train_path": ROOT_PATH / "data" / "train.csv",
         "test_path": ROOT_PATH / "data" / "test.csv",
         "sample_submission_path": ROOT_PATH / "data" / "sample_submission.csv",
         "target_column": "target",
 
-        # EDA fields
-        "eda_attempts": 0,
-        "eda_max_attempts": 3,
-        "eda_feedback": None,
-        "eda_validation_reports": [],
-        "eda_valid": False,
+        # Stage reports
+        "eda_report": StageReport(run_dir / "eda"),
+        "fe_report": StageReport(run_dir / "feature_engineering"),
+        "train_report": StageReport(run_dir / "train"),
+        "eval_report": StageReport(run_dir / "evaluation"),
+        "submission_report": StageReport(run_dir / "submission"),
 
-        "processed_train_path": None,
-        "processed_test_path": None,
-        "feature_eng_report_path": None,
-        "fe_attempts": 0,
-        "fe_max_attempts": 3,
-        "fe_feedback": None,
-        "fe_validation_reports": [],
-        "fe_valid": False,
+        "eda_output_path": None,
+        "feature_summary_path": None,
 
-        "train_attempts": 0,
-        "train_max_attempts": 3,
-        "train_feedback": None,
-        "train_validation_reports": [],
-        "train_valid": False,
+        "eda_attempts": 0, "eda_max_attempts": 3,
+        "eda_feedback": None, "eda_valid": False,
 
-        "eval_attempts": 0,
-        "eval_max_attempts": 3,
-        "eval_feedback": None,
-        "eval_validation_reports": [],
-        "eval_valid": False,
+        "processed_train_path": None, "processed_test_path": None,
+        "fe_attempts": 0, "fe_max_attempts": 3,
+        "fe_feedback": None, "fe_valid": False,
+
+        "train_attempts": 0, "train_max_attempts": 3,
+        "train_feedback": None, "train_valid": False,
+
+        "eval_attempts": 0, "eval_max_attempts": 3,
+        "eval_feedback": None, "eval_valid": False,
     }
-    return state

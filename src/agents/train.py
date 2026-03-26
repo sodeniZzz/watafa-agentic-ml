@@ -1,6 +1,7 @@
 """Train AGENT"""
 
 import logging
+import time
 from pathlib import Path
 
 from src.state import PipelineState
@@ -55,14 +56,15 @@ def should_continue_after_train_validation(state: PipelineState) -> str:
     return "train"
 
 
-def _generate_train_code(state: PipelineState, feedback: str) -> str:
+def _generate_train_code(state: PipelineState, feedback: str):
     feature_report = "Feature engineering report not available."
-    feature_report_path = state["feature_eng_report_path"]
-    if feature_report_path and Path(feature_report_path).exists():
-        feature_report = Path(feature_report_path).read_text(encoding="utf-8")[:2000]
+    feature_summary_path = state.get("feature_summary_path")
+    if feature_summary_path and Path(feature_summary_path).exists():
+        feature_report = Path(feature_summary_path).read_text(encoding="utf-8")[:2000]
 
     train_path = state["processed_train_path"] or state["train_path"]
-    model_path = state["run_dir"] / "models" / MODEL_FILE_NAME
+    stage_dir = state["run_dir"] / "train"
+    model_path = stage_dir / MODEL_FILE_NAME
     prompt = TRAIN_PROMPT_TEMPLATE.format(
         train_path=train_path,
         target_column=state["target_column"],
@@ -73,7 +75,8 @@ def _generate_train_code(state: PipelineState, feedback: str) -> str:
         prompt += f"\nPrevious attempt feedback:\n{feedback}\n"
 
     prompt += "\nWrite only executable Python code. No explanations."
-    return extract_python_code(invoke_llm(prompt))
+    llm_result = invoke_llm(prompt)
+    return extract_python_code(llm_result["text"]), llm_result["tokens_in"], llm_result["tokens_out"]
 
 
 def run_train_agent(state: PipelineState) -> PipelineState:
@@ -82,37 +85,31 @@ def run_train_agent(state: PipelineState) -> PipelineState:
     new_attempt = state["train_attempts"] + 1
     logger.info("Train attempt %s", new_attempt)
 
-    code = _generate_train_code(state, state["train_feedback"])
+    start = time.time()
+    code, tokens_in, tokens_out = _generate_train_code(state, state["train_feedback"])
 
-    code_dir = state["run_dir"] / "code"
-    code_dir.mkdir(parents=True, exist_ok=True)
-    code_path = code_dir / f"train_attempt_{new_attempt}.py"
+    stage_dir = state["run_dir"] / "train"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
     logger.info("Train code saved to %s", code_path)
 
-    execution_result = run_python_code(code_path, work_dir=code_dir, timeout=1800)
+    execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=1800)
+    duration = time.time() - start
 
-    report_path = (
-        state["run_dir"] / "reports" / f"train_report_attempt_{new_attempt}.txt"
+    # Log to stage report
+    state["train_report"].log_attempt(
+        attempt=new_attempt, duration_sec=duration,
+        tokens_in=tokens_in, tokens_out=tokens_out,
+        returncode=execution_result["returncode"],
+        stdout=execution_result["stdout"],
+        stderr=execution_result["stderr"],
+        error=execution_result["error"],
     )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_content = f"""STDOUT:
-{execution_result['stdout']}
-
-STDERR:
-{execution_result['stderr']}
-
-Return code: {execution_result['returncode']}
-
-Error: {execution_result['error']}
-"""
-    report_path.write_text(report_content, encoding="utf-8")
-    logger.info("Train report saved to %s", report_path)
 
     return {
         **state,
         "train_attempts": new_attempt,
-        "train_report_path": report_path,
         "train_valid": False,
     }
 
@@ -123,46 +120,28 @@ def run_train_validator(state: PipelineState) -> PipelineState:
     valid = True
     feedback = []
 
-    report_path = state["train_report_path"]
-    model_path = state["run_dir"] / "models" / MODEL_FILE_NAME
+    model_path = state["run_dir"] / "train" / MODEL_FILE_NAME
+    last = state["train_report"].last_attempt
 
-    if not report_path.exists():
+    if last.get("returncode", 0) != 0:
         valid = False
-        feedback.append("Training execution report is missing.")
-    else:
-        report = Path(report_path).read_text(encoding="utf-8")
-        if (
-            "Traceback" in report
-            or "Return code: -1" in report
-            or "Return code: 1" in report
-        ):
-            valid = False
-            feedback.append("Training code execution failed.")
-        if "Error:" in report and "Error: None" not in report:
-            valid = False
-            feedback.append("Training execution returned an error.")
-
+        feedback.append("Training code execution failed.")
+        if last.get("stderr"):
+            feedback.append(f"Stderr:\n{last['stderr'][-1000:]}")
+    if last.get("error"):
+        valid = False
+        feedback.append(f"Training error: {last['error']}")
     if not model_path.exists():
         valid = False
         feedback.append("RandomForest model artifact was not created.")
 
     feedback_text = "\n".join(feedback) if feedback else "Training looks good."
 
-    validation_report_path = (
-        state["run_dir"]
-        / "reports"
-        / f"train_validation_attempt_{state['train_attempts']}.txt"
-    )
-    validation_report_path.write_text(
-        f"VALID: {valid}\nFEEDBACK:\n{feedback_text}",
-        encoding="utf-8",
-    )
+    state["train_report"].log_validation(valid, feedback_text)
 
     logger.info("Train validation completed. Valid: %s", valid)
     return {
         **state,
-        "train_validation_reports": state["train_validation_reports"]
-        + [validation_report_path],
         "train_feedback": feedback_text,
         "train_valid": valid,
     }

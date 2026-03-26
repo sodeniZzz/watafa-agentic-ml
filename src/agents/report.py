@@ -1,0 +1,89 @@
+"""Report AGENT"""
+
+import json
+import logging
+from pathlib import Path
+
+from src.state import PipelineState
+from src.utils.llm_utils import invoke_llm
+from src.utils.metrics_utils import build_benchmark_summary
+
+logger = logging.getLogger(__name__)
+
+REPORT_PROMPT_TEMPLATE = """You are an ML pipeline analyst. Generate a benchmark report in Markdown.
+
+Pipeline metrics:
+{summary_json}
+
+EDA output (excerpt):
+{eda_output}
+
+Feature engineering summary (excerpt):
+{feature_summary}
+
+Write a Markdown report with:
+## Pipeline Summary
+- Total duration, total tokens used
+
+## Agent Performance
+- Table: Agent | Attempts | Duration (sec) | Tokens In | Tokens Out
+
+## Model Results
+- Best model, MSE
+
+## Observations
+- Key insights about the pipeline run
+
+Keep it concise and factual.
+"""
+
+
+def run_report_agent(state: PipelineState) -> PipelineState:
+    logger.info("Report node started")
+
+    reports_dir = state["run_dir"] / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build benchmark_summary.json from all stage reports
+    stage_reports = {
+        "eda": state["eda_report"],
+        "feature_engineering": state["fe_report"],
+        "train": state["train_report"],
+        "evaluation": state["eval_report"],
+}
+
+    model_metrics = {}
+    eval_metrics_path = state["run_dir"] / "evaluation" / "evaluation_metrics.json"
+    if eval_metrics_path.exists():
+        model_metrics = json.loads(eval_metrics_path.read_text(encoding="utf-8")).get("models", {})
+
+    summary = build_benchmark_summary(
+        output_path=reports_dir / "benchmark_summary.json",
+        stage_reports=stage_reports,
+        model_metrics=model_metrics,
+        best_model_name=state.get("best_model_name"),
+    )
+
+    # Collect context for LLM
+    eda_output = ""
+    eda_output_path = state.get("eda_output_path")
+    if eda_output_path and Path(eda_output_path).exists():
+        eda_output = Path(eda_output_path).read_text(encoding="utf-8")[:1500]
+
+    feature_summary = ""
+    feature_summary_path = state.get("feature_summary_path")
+    if feature_summary_path and Path(feature_summary_path).exists():
+        feature_summary = Path(feature_summary_path).read_text(encoding="utf-8")[:1500]
+
+    prompt = REPORT_PROMPT_TEMPLATE.format(
+        summary_json=json.dumps(summary, indent=2),
+        eda_output=eda_output,
+        feature_summary=feature_summary,
+    )
+
+    result = invoke_llm(prompt)
+    report_path = reports_dir / "benchmark_report.md"
+    report_path.write_text(result["text"], encoding="utf-8")
+    logger.info("Benchmark report saved to %s", report_path)
+
+    return state

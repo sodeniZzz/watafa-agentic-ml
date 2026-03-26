@@ -48,8 +48,14 @@ def invoke_llm(
     prompt: str,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
-) -> str:
-    """Send a single text prompt to the LLM and return plain text."""
+) -> dict:
+    """Send a prompt to LLM. Returns {'text', 'tokens_in', 'tokens_out'}."""
     llm = build_llm(temperature=temperature, max_tokens=max_tokens)
     response = llm.invoke(prompt)
-    return getattr(response, "content", str(response))
+    text = getattr(response, "content", str(response))
+
+    usage = getattr(response, "usage_metadata", None) or {}
+    tokens_in = usage.get("input_tokens", 0) if isinstance(usage, dict) else 0
+    tokens_out = usage.get("output_tokens", 0) if isinstance(usage, dict) else 0
+
+    return {"text": text, "tokens_in": tokens_in, "tokens_out": tokens_out}
