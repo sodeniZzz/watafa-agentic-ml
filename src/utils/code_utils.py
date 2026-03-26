@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+from src.utils.guardrails import validate_code
+
 
 def extract_python_code(text: str) -> str:
     code = text.strip()
@@ -26,6 +28,17 @@ def run_python_code(
         work_dir = script_path.parent
     else:
         work_dir = Path(work_dir)
+
+    code_content = script_path.read_text(encoding="utf-8")
+    is_safe, violations = validate_code(code_content)
+    if not is_safe:
+        return {
+            "stdout": "",
+            "stderr": "Code validation failed:\n" + "\n".join(f"  - {v}" for v in violations),
+            "returncode": -1,
+            "files_created": [],
+            "error": "Code blocked by security guardrails",
+        }
 
     before_files = set()
     if capture_files:

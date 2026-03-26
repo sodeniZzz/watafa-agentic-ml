@@ -8,6 +8,7 @@ from src.logger.logger import setup_logging
 from src.state import PipelineState, create_initial_state
 from src.utils.io_utils import ROOT_PATH
 from src.utils.kaggle_utils import prepare_kaggle_data
+from src.utils.guardrails import validate_csv
 
 
 def create_run_dir() -> Path:
@@ -30,6 +31,12 @@ def bootstrap_run() -> PipelineState:
 
     state = create_initial_state(run_dir)
     state.update(prepare_kaggle_data(ROOT_PATH / "data"))
+
+    for csv_file in (ROOT_PATH / "data").glob("*.csv"):
+        csv_warnings = validate_csv(str(csv_file))
+        if csv_warnings:
+            for w in csv_warnings:
+                logger.warning("CSV guardrail [%s]: %s", csv_file.name, w)
 
     logger.info("Train data: %s", state["train_path"])
     logger.info("Test data: %s", state["test_path"])
