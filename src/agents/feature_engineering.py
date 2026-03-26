@@ -14,25 +14,29 @@ from src.utils.llm_utils import invoke_llm
 logger = logging.getLogger(__name__)
 
 
-FEATURE_ENGINEERING_PROMPT_TEMPLATE = """You are a feature engineering expert. Based on the EDA report below, write Python code to create new features for the training and test datasets.
+FEATURE_ENGINEERING_PROMPT_TEMPLATE = """You are a feature engineering expert for a real estate rental price prediction competition. The goal is to predict rental occupancy (target: days occupied or similar). Based on the EDA report below, write Python code to create meaningful features for the training and test datasets.
 
-The data files:
+Data files:
 - Train: {train_path}
 - Test: {test_path}
 
-Your code should:
-1. Load train and test CSVs using pandas.
-2. Perform feature engineering:
-   - Create at least 3 new meaningful features based on insights from EDA.
-   - Handle missing values if necessary (e.g., fill with median/mode, or create indicator columns).
-   - Encode categorical variables if appropriate (e.g., one-hot encoding for low-cardinality, label encoding for high cardinality).
-   - You may also create interaction features, polynomial features, or date-based features if applicable.
-3. Save the processed datasets as new CSV files:
+Expected columns (may vary): location (lat/lon, cluster), property type, price (sum), min_days, reviews (amt_reviews, avg_reviews), last_dt (date), host info, etc.
+
+Your code must:
+1. Load train and test CSVs with pandas.
+2. Perform feature engineering focused on rental data:
+   - Location: derive cluster popularity (e.g., count of listings per cluster, median price per cluster, distance from center).
+   - Price: create price_per_night = sum / min_days; price bins; price relative to area median.
+   - Time: extract year/month/day from last_dt; days since last review; seasonal indicators.
+   - Reviews: ratio of amt_reviews to total_host; average rating interactions.
+   - Categoricals: one-hot encode low‑cardinality columns; label encode high‑cardinality if needed.
+   - Missing values: fill with median/mode or create indicator columns.
+3. Save processed datasets to:
    - Train: {processed_train_path}
    - Test: {processed_test_path}
-4. Print a brief summary of what has been added / changed
-    - New features - their pandas type, type(Categorical / Numeric / ...), description, short explanation how they were calculated
-    - New shapes of Train, Test dfs
+4. Print a concise summary:
+   - New features: name, type (categorical/numeric), description, calculation.
+   - Final shapes of train and test DataFrames.
 
 EDA report excerpt:
 {eda_summary}
