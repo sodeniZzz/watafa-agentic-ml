@@ -46,6 +46,10 @@ class PipelineState(TypedDict, total=False):
     train_max_attempts: int
     train_feedback: str
     train_valid: bool
+    train_phase: str                # "explore" or "tune"
+    exploration_results: list[dict]  # list of {model_name, metrics} from exploration
+    selected_model: str              # chosen model name after exploration
+    exploration_metrics_path: str
 
     # Eval
     eval_attempts: int
@@ -62,6 +66,11 @@ def create_initial_state(run_dir: Path) -> PipelineState:
         "test_path": ROOT_PATH / "data" / "test.csv",
         "sample_submission_path": ROOT_PATH / "data" / "sample_submission.csv",
         "target_column": "target",
+
+        "model_path": None,
+        "submission_path": None,
+        "metrics": None,
+        "best_model_name": None,
 
         # Stage reports
         "eda_report": StageReport(run_dir / "eda"),
@@ -82,6 +91,10 @@ def create_initial_state(run_dir: Path) -> PipelineState:
 
         "train_attempts": 0, "train_max_attempts": 3,
         "train_feedback": None, "train_valid": False,
+        "train_phase": "explore",
+        "exploration_results": [],
+        "selected_model": None,
+        "exploration_metrics_path": None,
 
         "eval_attempts": 0, "eval_max_attempts": 3,
         "eval_feedback": None, "eval_valid": False,

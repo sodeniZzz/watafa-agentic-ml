@@ -62,19 +62,19 @@ def build_graph():
         "train_validator",
         should_continue_after_train_validation,
         {
-            "evaluation": "evaluation",
+            "evaluation": "submission",
             "train": "train",
         },
     )
-    graph_builder.add_edge("evaluation", "eval_validator")
-    graph_builder.add_conditional_edges(
-        "eval_validator",
-        should_continue_after_eval_validation,
-        {
-            "submission": "submission",
-            "evaluation": "evaluation",
-        },
-    )
+    # graph_builder.add_edge("evaluation", "eval_validator")
+    # graph_builder.add_conditional_edges(
+    #     "eval_validator",
+    #     should_continue_after_eval_validation,
+    #     {
+    #         "submission": "submission",
+    #         "evaluation": "evaluation",
+    #     },
+    # )
     graph_builder.add_edge("submission", "report")
     graph_builder.add_edge("report", END)
 

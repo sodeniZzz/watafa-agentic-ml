@@ -20,6 +20,10 @@ The data is located in the file: {train_path}
 There is also a test file (you can use it for comparison): {test_path}
 
 The code should perform the following tasks:
+- Based on the target, determine the type of the task and print it in the beginning of the report
+    - 2-class Classification 
+    - multi-class Classification (if the number of target if less that 30)
+    - Regression
 - Load the data using pandas.
 - Output basic information: shape, columns, dtypes, number of missing values, descriptive statistics for numeric columns.
 - For numeric features, calculate and output: number of unique values, min/max, quantiles.
@@ -33,6 +37,7 @@ Column information (first 5 rows):
 EDA_VALIDATOR_PROMPT_TEMPLATE = """You are an expert data analyst validating an EDA report.
 
 The EDA was supposed to:
+- Determine the type of 
 - Load data with pandas
 - Output basic info: shape, columns, dtypes, missing values, descriptive statistics for numeric columns
 - For numeric features: unique values count, min/max, quantiles
