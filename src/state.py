@@ -82,11 +82,11 @@ def create_initial_state(run_dir: Path) -> PipelineState:
         "eda_output_path": None,
         "feature_summary_path": None,
 
-        "eda_attempts": 0, "eda_max_attempts": 1,
+        "eda_attempts": 0, "eda_max_attempts": 3,
         "eda_feedback": None, "eda_valid": False,
 
         "processed_train_path": None, "processed_test_path": None,
-        "fe_attempts": 0, "fe_max_attempts": 1,
+        "fe_attempts": 0, "fe_max_attempts": 3,
         "fe_feedback": None, "fe_valid": False,
 
         "train_attempts": 0, "train_max_attempts": 3,

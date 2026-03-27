@@ -45,15 +45,19 @@ Requirements:
 15. Do not train any other models.
 16. Print a short summary with the split sizes, best params from grid search, final_n_estimators, and saved model path.
 
+EDA report excerpt:
+{eda_report}
+
 Feature engineering report excerpt:
 {feature_report}
 """
 
-EXPLORE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to train multiple regression models and compare their validation performance.
+EXPLORE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to train multiple models and compare their validation performance. The task type (regression or classification) will be determined from the EDA report.
 
 Input:
 - Processed train dataset: {train_path}
 - Target column: {target_column}
+- Task type: inferred from EDA report (regression, binary classification, or multiclass classification)
 
 Requirements:
 1. Load the dataset with pandas.
@@ -61,34 +65,60 @@ Requirements:
 3. Use only numeric features (automatically select numeric columns).
 4. Split data into train and validation (test_size=0.2, random_state=42).
 5. Fill missing values using median from train split.
-6. Train the following models with default parameters (or simple default if needed):
-   - RandomForestRegressor (from sklearn.ensemble)
-   - XGBRegressor (import xgboost)
-   - LGBMRegressor (import lightgbm)
-   - GradientBoostingRegressor (from sklearn.ensemble)
-   - ExtraTreesRegressor (from sklearn.ensemble)
-   - CatBoostRegressor (import catboost)
-   - Ridge (from sklearn.linear_model)
-   - Lasso (from sklearn.linear_model)
-   - ElasticNet (from sklearn.linear_model)
-   - KNeighborsRegressor (from sklearn.neighbors)
 
-7. For each model, fit on train, predict on validation, compute:
-   - Mean Squared Error (MSE)
-   - Mean Absolute Error (MAE)
-   - R² score
+6. Based on the task type (identified from the EDA report):
+   - If **regression**, train the following models with default parameters:
+     - RandomForestRegressor
+     - XGBRegressor
+     - LGBMRegressor
+     - GradientBoostingRegressor
+     - ExtraTreesRegressor
+     - CatBoostRegressor
+     - Ridge
+     - Lasso
+     - ElasticNet
+     - KNeighborsRegressor
+     Compute metrics: Mean Squared Error (MSE), Mean Absolute Error (MAE), R² score.
+   
+   - If **binary classification** (2 classes), train:
+     - RandomForestClassifier
+     - XGBClassifier
+     - LGBMClassifier
+     - GradientBoostingClassifier
+     - LogisticRegression
+     - SVC (with probability=True for metrics)
+     - KNeighborsClassifier
+     - CatBoostClassifier
+     Compute metrics: Accuracy, Precision, Recall, F1-score, ROC-AUC.
+   
+   - If **multiclass classification** (>2 classes), train:
+     - RandomForestClassifier
+     - XGBClassifier
+     - LGBMClassifier
+     - GradientBoostingClassifier
+     - LogisticRegression (multinomial)
+     - SVC (with probability=True)
+     - KNeighborsClassifier
+     - CatBoostClassifier
+     Compute metrics: Accuracy, Macro F1-score, Weighted F1-score.
+
+7. For each model, fit on train, predict on validation, compute the appropriate metrics (as above).
 8. Save the metrics for each model in a JSON file at:
    {metrics_path}
-   Format: {{"model_name": {{"mse": ..., "mae": ..., "r2": ...}}}}
-9. Print a short summary of the results.
+   Format: {{"model_name": {{"metric1": value, "metric2": value, ...}}}}
+   Use the appropriate metric names (e.g., for regression: "mse", "mae", "r2"; for classification: "accuracy", "f1_macro", etc.).
+9. Print a short summary of the results (e.g., top 3 models by main metric).
 10. Do not save the models (only the JSON report is needed).
 11. Write only executable Python code, no explanations.
+
+EDA report excerpt:
+{eda_report}
 
 Feature engineering report excerpt:
 {feature_report}
 """
 
-TUNE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to tune and train a single {model_name} model for a tabular regression dataset.
+TUNE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to tune and train a single {model_name} model for a tabular dataset. The task type (regression or classification) is inferred from the EDA report.
 
 Input:
 - Processed train dataset: {train_path}
@@ -99,16 +129,30 @@ Input:
 Requirements:
 1. Load the dataset with pandas.
 2. Use target column exactly named {target_column}.
-3. Use only numeric features.
+3. Use only numeric features (automatically select numeric columns).
 4. Split rows into train and validation sets with test_size=0.2, random_state=42.
 5. Fill missing values using median from train split.
-6. Perform hyperparameter tuning for {model_name} using GridSearchCV or RandomizedSearchCV (cv=3, scoring="neg_mean_squared_error").
-7. Use a compact search space (e.g., for XGBoost: n_estimators, max_depth, learning_rate).
-8. After tuning, train a final model on the full train split with the best parameters.
-9. Save the model bundle (including model, feature columns, fill values, best params) to:
+6. Perform hyperparameter tuning for {model_name} using **Optuna**:
+   - Define an objective function that:
+     - Takes a trial and suggests hyperparameters (e.g., for XGBoost: n_estimators, max_depth, learning_rate, subsample, etc.).
+     - Trains the model on the training split with suggested parameters.
+     - Evaluates on the validation split using the appropriate metric:
+       * For regression: negative mean squared error (or RMSE, R²).
+       * For classification: accuracy (or f1, ROC‑AUC).
+   - Use a reasonable search space (e.g., n_estimators: [100, 500], max_depth: [3, 10], learning_rate: [0.01, 0.3]).
+   - Run a study with n_trials=30 (or a number that fits within time constraints).
+   - Use `optuna.create_study(direction="maximize" or "minimize")` as appropriate.
+7. After tuning, retrieve the best parameters and train a final model on the **full train split** (the combined train+validation) with those parameters.
+8. Save the model bundle (including model, feature columns, fill values, best params) to:
    {model_path}
-10. Print a short summary with validation performance and best parameters.
-11. Write only executable Python code, no explanations.
+   You can use joblib or pickle.
+9. Print a short summary with validation performance (on the validation set used during tuning) and best parameters.
+10. Write only executable Python code, no explanations.
+
+**Note:** Ensure `optuna` is installed (pip install optuna). Use standard libraries: pandas, numpy, sklearn, optuna.
+
+EDA report excerpt:
+{eda_report}
 
 Feature engineering report excerpt:
 {feature_report}
@@ -128,9 +172,14 @@ def _generate_train_code(state: PipelineState, feedback: str):
     if feature_summary_path and Path(feature_summary_path).exists():
         feature_report = Path(feature_summary_path).read_text(encoding="utf-8")[:2000]
 
+    eda_report = "EDA report not available."
+    eda_summary_path = state.get("eda_output_path")
+    if eda_summary_path and Path(eda_summary_path).exists():
+        eda_report = Path(eda_summary_path).read_text(encoding="utf-8")[:5000]
+
     train_path = state["processed_train_path"] or state["train_path"]
     stage_dir = state["run_dir"] / "train"
-    model_path = stage_dir / "model.joblib"          # for tuning phase
+    model_path = stage_dir / "model.joblib" 
     metrics_path = stage_dir / "exploration_metrics.json"
 
     phase = state.get("train_phase", "explore")
@@ -141,6 +190,7 @@ def _generate_train_code(state: PipelineState, feedback: str):
             target_column=state["target_column"],
             metrics_path=metrics_path,
             feature_report=feature_report,
+            eda_report=eda_report,
         )
         if feedback:
             prompt += f"\nPrevious attempt feedback:\n{feedback}\n"
@@ -156,6 +206,7 @@ def _generate_train_code(state: PipelineState, feedback: str):
             model_name=selected_model,
             model_path=model_path,
             feature_report=feature_report,
+            eda_report=eda_report,
             feedback=feedback if feedback else "None",
         )
         prompt += "\nWrite only executable Python code. No explanations."
