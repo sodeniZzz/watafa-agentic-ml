@@ -104,6 +104,7 @@ ENV/
 # todo
 artifacts/
 data/
+knowledge/
 
 # editor, os cache directory
 .vscode/

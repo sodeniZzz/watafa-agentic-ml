@@ -21,6 +21,9 @@ EDA output (excerpt):
 Feature engineering summary (excerpt):
 {feature_summary}
 
+Tuning results (excerpt):
+{tune_output}
+
 Write a Markdown report with:
 ## Pipeline Summary
 - Total duration, total tokens used
@@ -28,8 +31,11 @@ Write a Markdown report with:
 ## Agent Performance
 - Table: Agent | Attempts | Duration (sec) | Tokens In | Tokens Out
 
-## Model Results
-- Best model, MSE
+## Model Exploration Results
+- Table of all models and their metrics from the exploration phase
+
+## Tuning Results
+- Selected model, best hyperparameters, final validation score
 
 ## Observations
 - Key insights about the pipeline run
@@ -49,19 +55,18 @@ def run_report_agent(state: PipelineState) -> PipelineState:
         "eda": state["eda_report"],
         "feature_engineering": state["fe_report"],
         "train": state["train_report"],
-        "evaluation": state["eval_report"],
-}
+        "tune": state["tune_report"],
+    }
 
     model_metrics = {}
-    eval_metrics_path = state["run_dir"] / "evaluation" / "evaluation_metrics.json"
-    if eval_metrics_path.exists():
-        model_metrics = json.loads(eval_metrics_path.read_text(encoding="utf-8")).get("models", {})
+    exploration_metrics_path = state["run_dir"] / "train" / "exploration_metrics.json"
+    if exploration_metrics_path.exists():
+        model_metrics = json.loads(exploration_metrics_path.read_text(encoding="utf-8"))
 
     summary = build_benchmark_summary(
         output_path=reports_dir / "benchmark_summary.json",
         stage_reports=stage_reports,
         model_metrics=model_metrics,
-        best_model_name=state.get("best_model_name"),
     )
 
     # Collect context for LLM
@@ -75,10 +80,16 @@ def run_report_agent(state: PipelineState) -> PipelineState:
     if feature_summary_path and Path(feature_summary_path).exists():
         feature_summary = Path(feature_summary_path).read_text(encoding="utf-8")[:1500]
 
+    tune_output = ""
+    tune_last = state["tune_report"].last_attempt
+    if tune_last.get("stdout"):
+        tune_output = tune_last["stdout"][-1500:]
+
     prompt = REPORT_PROMPT_TEMPLATE.format(
         summary_json=json.dumps(summary, indent=2),
         eda_output=eda_output,
         feature_summary=feature_summary,
+        tune_output=tune_output,
     )
 
     result = invoke_llm(prompt)

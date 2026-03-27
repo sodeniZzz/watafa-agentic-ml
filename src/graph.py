@@ -19,10 +19,10 @@ from src.agents.train import (
     run_train_validator,
     should_continue_after_train_validation,
 )
-from src.agents.eval import (
-    run_eval_agent,
-    run_eval_validator,
-    should_continue_after_eval_validation,
+from src.agents.tune import (
+    run_tune_agent,
+    run_tune_validator,
+    should_continue_after_tune_validation,
 )
 from src.agents.submission import run_submission_agent
 from src.agents.report import run_report_agent
@@ -39,8 +39,8 @@ def build_graph():
     graph_builder.add_node("feature_engineering_validator", run_fe_validator)
     graph_builder.add_node("train", run_train_agent)
     graph_builder.add_node("train_validator", run_train_validator)
-    graph_builder.add_node("evaluation", run_eval_agent)
-    graph_builder.add_node("eval_validator", run_eval_validator)
+    graph_builder.add_node("tune", run_tune_agent)
+    graph_builder.add_node("tune_validator", run_tune_validator)
     graph_builder.add_node("submission", run_submission_agent)
     graph_builder.add_node("report", run_report_agent)
 
@@ -61,20 +61,14 @@ def build_graph():
     graph_builder.add_conditional_edges(
         "train_validator",
         should_continue_after_train_validation,
-        {
-            "evaluation": "submission",
-            "train": "train",
-        },
+        {"tune": "tune", "train": "train"},
     )
-    # graph_builder.add_edge("evaluation", "eval_validator")
-    # graph_builder.add_conditional_edges(
-    #     "eval_validator",
-    #     should_continue_after_eval_validation,
-    #     {
-    #         "submission": "submission",
-    #         "evaluation": "evaluation",
-    #     },
-    # )
+    graph_builder.add_edge("tune", "tune_validator")
+    graph_builder.add_conditional_edges(
+        "tune_validator",
+        should_continue_after_tune_validation,
+        {"submission": "submission", "tune": "tune"},
+    )
     graph_builder.add_edge("submission", "report")
     graph_builder.add_edge("report", END)
 

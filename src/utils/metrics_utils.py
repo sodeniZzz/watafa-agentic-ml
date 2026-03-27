@@ -55,7 +55,7 @@ class StageReport:
         )
 
 
-def build_benchmark_summary(output_path, stage_reports, model_metrics=None, best_model_name=None):
+def build_benchmark_summary(output_path, stage_reports, model_metrics=None):
     agents = {}
     for name, report in stage_reports.items():
         agents[name] = {
@@ -69,7 +69,7 @@ def build_benchmark_summary(output_path, stage_reports, model_metrics=None, best
     summary = {
         "agents": agents,
         "models": model_metrics or {},
-        "best_model": best_model_name,
+        "best_model": None,
         "total_duration_sec": round(sum(a["total_duration_sec"] for a in agents.values()), 1),
         "total_tokens_in": sum(a["total_tokens_in"] for a in agents.values()),
         "total_tokens_out": sum(a["total_tokens_out"] for a in agents.values()),

@@ -13,14 +13,12 @@ class PipelineState(TypedDict, total=False):
     target_column: str
     model_path: Path
     submission_path: Path
-    metrics: dict[str, float]
-    best_model_name: str
 
     # StageReport objects (one per agent)
     eda_report: Any
     fe_report: Any
     train_report: Any
-    eval_report: Any
+    tune_report: Any
     submission_report: Any
 
     # Clean content paths for next agent
@@ -41,21 +39,18 @@ class PipelineState(TypedDict, total=False):
     processed_train_path: str
     processed_test_path: str
 
-    # Train
+    # Train (explore)
     train_attempts: int
     train_max_attempts: int
     train_feedback: str
     train_valid: bool
-    train_phase: str                # "explore" or "tune"
-    exploration_results: list[dict]  # list of {model_name, metrics} from exploration
-    selected_model: str              # chosen model name after exploration
     exploration_metrics_path: str
 
-    # Eval
-    eval_attempts: int
-    eval_max_attempts: int
-    eval_feedback: str
-    eval_valid: bool
+    # Tune
+    tune_attempts: int
+    tune_max_attempts: int
+    tune_feedback: str
+    tune_valid: bool
 
 
 def create_initial_state(run_dir: Path) -> PipelineState:
@@ -69,14 +64,12 @@ def create_initial_state(run_dir: Path) -> PipelineState:
 
         "model_path": None,
         "submission_path": None,
-        "metrics": None,
-        "best_model_name": None,
 
         # Stage reports
         "eda_report": StageReport(run_dir / "eda"),
         "fe_report": StageReport(run_dir / "feature_engineering"),
         "train_report": StageReport(run_dir / "train"),
-        "eval_report": StageReport(run_dir / "evaluation"),
+        "tune_report": StageReport(run_dir / "tune"),
         "submission_report": StageReport(run_dir / "submission"),
 
         "eda_output_path": None,
@@ -91,11 +84,8 @@ def create_initial_state(run_dir: Path) -> PipelineState:
 
         "train_attempts": 0, "train_max_attempts": 3,
         "train_feedback": None, "train_valid": False,
-        "train_phase": "explore",
-        "exploration_results": [],
-        "selected_model": None,
         "exploration_metrics_path": None,
 
-        "eval_attempts": 0, "eval_max_attempts": 3,
-        "eval_feedback": None, "eval_valid": False,
+        "tune_attempts": 0, "tune_max_attempts": 3,
+        "tune_feedback": None, "tune_valid": False,
     }
