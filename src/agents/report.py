@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from src.state import PipelineState
+from src.utils.io_utils import read_json
 from src.utils.llm_utils import invoke_llm
 from src.utils.metrics_utils import build_benchmark_summary
 
@@ -61,7 +62,7 @@ def run_report_agent(state: PipelineState) -> PipelineState:
     model_metrics = {}
     exploration_metrics_path = state["run_dir"] / "train" / "exploration_metrics.json"
     if exploration_metrics_path.exists():
-        model_metrics = json.loads(exploration_metrics_path.read_text(encoding="utf-8"))
+        model_metrics = read_json(exploration_metrics_path)
 
     summary = build_benchmark_summary(
         output_path=reports_dir / "benchmark_summary.json",

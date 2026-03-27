@@ -24,6 +24,8 @@ def build_submission_file(state: PipelineState) -> Path:
     test_df = pd.read_csv(test_path)
     sample_submission = pd.read_csv(state["sample_submission_path"])
 
+    if isinstance(fill_values, list):
+        fill_values = dict(zip(feature_columns, fill_values))
     x_test = test_df[feature_columns].fillna(fill_values)
     predictions = model.predict(x_test)
 

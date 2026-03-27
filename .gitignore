@@ -104,7 +104,9 @@ ENV/
 # todo
 artifacts/
 data/
-knowledge/
+knowledge/*
+!knowledge/.gitkeep
+knowledge/.faiss_cache/
 
 # editor, os cache directory
 .vscode/

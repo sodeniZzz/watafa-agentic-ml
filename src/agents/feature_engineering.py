@@ -10,35 +10,84 @@ from src.utils.code_utils import (
     run_python_code,
 )
 from src.utils.llm_utils import invoke_llm
+from src.utils.rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
 
-FEATURE_ENGINEERING_PROMPT_TEMPLATE = """You are a feature engineering expert for a real estate rental price prediction competition. The goal is to predict rental occupancy (target: days occupied or similar). Based on the EDA report below, write Python code to create meaningful features for the training and test datasets.
+FEATURE_ENGINEERING_PROMPT_TEMPLATE = """You are a senior feature engineering expert. Based on the EDA report below, write Python code to create high-quality features for train and test datasets. The goal is strong generalization on unseen test data.
+
+Target column name: {target_column}
 
 Data files:
 - Train: {train_path}
 - Test: {test_path}
 
-Expected columns (may vary): location (lat/lon, cluster), property type, price (sum), min_days, reviews (amt_reviews, avg_reviews), last_dt (date), host info, etc.
+Save processed datasets to:
+- Train: {processed_train_path}
+- Test: {processed_test_path}
 
-Your code must:
-1. Load train and test CSVs with pandas.
-2. Perform feature engineering focused on rental data:
-   - Location: derive cluster popularity (e.g., count of listings per cluster, median price per cluster, distance from center).
-   - Price: create price_per_night = sum / min_days; price bins; price relative to area median.
-   - Time: extract year/month/day from last_dt; days since last review; seasonal indicators.
-   - Reviews: ratio of amt_reviews to total_host; average rating interactions.
-   - Categoricals: one-hot encode low‑cardinality columns; label encode high‑cardinality if needed.
-   - Missing values: fill with median/mode or create indicator columns.
-3. Save processed datasets to:
-   - Train: {processed_train_path}
-   - Test: {processed_test_path}
-4. Print a concise summary:
-   - New features: name, type (categorical/numeric), description, calculation.
-   - Final shapes of train and test DataFrames.
+## CRITICAL RULES (violating any of these makes the output invalid):
+1. The "{target_column}" column MUST be preserved in processed train. NEVER drop it.
+2. Do NOT use "{target_column}" as an input feature or for feature construction (no target leakage).
+3. Fit/compute ALL statistics, encoders, and mappings on TRAIN ONLY, then apply to both train and test.
+4. Train and test must have IDENTICAL columns (except "{target_column}" which is only in train).
+5. The output DataFrames must contain ONLY numeric columns (int/float). No object/string/category dtypes.
 
-EDA report excerpt:
+## FEATURE ENGINEERING STEPS (apply in this order):
+
+### Step 1: Setup
+- Load train and test with pandas.
+- Separate target: `target = train["{target_column}"]`, then drop it from train temporarily.
+- Identify column types: numeric_cols, categorical_cols (object dtype), date_cols (contains "dt" or "date" in name, or parseable as dates).
+- Drop ID-like columns (unique values == number of rows) and constant columns (1 unique value).
+
+### Step 2: Date features
+- For each date column, parse with pd.to_datetime(errors="coerce").
+- Extract: year, month, day, day_of_week, is_weekend (0/1).
+- Compute days_since = (max_date_in_train - date).dt.days.
+- Drop the original date column after extraction.
+
+### Step 3: Categorical encoding
+- For each categorical column:
+  - If nunique <= 20: use pd.get_dummies (one-hot encoding). Align train and test columns after encoding.
+  - If nunique > 20: use frequency encoding (value_counts normalized, computed on train, mapped to both).
+- For any new categories in test not seen in train, fill with 0 (one-hot) or 0.0 (frequency).
+
+### Step 4: Numeric features
+- For pairs of related numeric columns, create:
+  - Ratios (A / (B + 1)) — add 1 to avoid division by zero.
+  - Products (A * B) for columns that logically interact.
+- Apply np.log1p() to highly skewed numeric columns (skewness > 2).
+- Create binned versions (pd.qcut with 5-10 bins, labels=False) for continuous columns with high cardinality.
+
+### Step 5: Group aggregates
+- For each categorical column (before encoding) with 2 < nunique <= 50:
+  - Compute mean and median of top numeric columns, grouped by that category (on train only).
+  - Map these aggregates to both train and test.
+  - Name pattern: {{numeric_col}}_mean_by_{{cat_col}}.
+
+### Step 6: Missing values
+- For columns with >5% missing: create binary indicator column {{col}}_missing (1 if NaN, 0 otherwise).
+- Fill numeric NaNs with median (computed on train).
+- Fill categorical NaNs with mode (computed on train) before encoding.
+
+### Step 7: Final cleanup
+- Re-attach target to train: train["{target_column}"] = target.
+- Drop any remaining non-numeric columns.
+- Ensure train and test have the same columns (except "{target_column}").
+- Print a detailed summary to stdout:
+  - Final list of ALL column names in the processed dataset.
+  - For each NEW feature: name, how it was computed (e.g. "ratio of sum to min_days", "frequency encoding of location_cluster").
+  - Which columns were dropped and why (ID, constant, original date, etc.).
+  - Final shapes of train and test.
+
+## IMPORTANT NOTES:
+- Use only pandas, numpy, sklearn. Do not use feature-engine or other specialized libraries.
+- All transformations must be deterministic (set random_state where applicable).
+- Handle edge cases: empty categories, all-NaN columns, zero-variance columns.
+
+EDA report:
 {eda_summary}
 """
 
@@ -62,10 +111,16 @@ def _generate_feature_eng_code(state: PipelineState, feedback: str = None):
     prompt = FEATURE_ENGINEERING_PROMPT_TEMPLATE.format(
         train_path=state["train_path"],
         test_path=state["test_path"],
+        target_column=state["target_column"],
         processed_train_path=stage_dir / "processed_train.csv",
         processed_test_path=stage_dir / "processed_test.csv",
         eda_summary=eda_summary,
     )
+
+    rag_context = retrieve_context(f"feature engineering {eda_summary[:200]}")
+    if rag_context:
+        prompt += f"\n\nRelevant reference material:\n{rag_context}\n"
+
     if feedback:
         prompt += f"\nPrevious attempt had the following issues. Please fix them:\n{feedback}\n"
 

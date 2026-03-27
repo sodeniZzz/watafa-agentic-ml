@@ -1,12 +1,12 @@
 """Train AGENT — explore multiple models and compare validation performance."""
 
-import json
 import logging
 import time
 from pathlib import Path
 
 from src.state import PipelineState
 from src.utils.code_utils import extract_python_code, run_python_code
+from src.utils.io_utils import read_json
 from src.utils.llm_utils import invoke_llm
 
 
@@ -34,10 +34,6 @@ Requirements:
      - GradientBoostingRegressor
      - ExtraTreesRegressor
      - CatBoostRegressor
-     - Ridge
-     - Lasso
-     - ElasticNet
-     - KNeighborsRegressor
      Compute metrics: Mean Squared Error (MSE), Mean Absolute Error (MAE), R² score.
    - If **binary classification** (2 classes), train:
      - RandomForestClassifier
@@ -164,8 +160,7 @@ def run_train_validator(state: PipelineState) -> PipelineState:
 
     metrics_path = state.get("exploration_metrics_path")
     if metrics_path and Path(metrics_path).exists():
-        with open(metrics_path) as f:
-            metrics = json.load(f)
+        metrics = read_json(metrics_path)
         if metrics:
             valid = True
             feedback.append(f"Exploration completed. {len(metrics)} models evaluated.")

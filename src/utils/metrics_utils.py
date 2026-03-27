@@ -1,5 +1,6 @@
-import json
 from pathlib import Path
+
+from src.utils.io_utils import read_json, write_json
 
 
 class StageReport:
@@ -9,7 +10,7 @@ class StageReport:
         self.path = Path(stage_dir) / "stage_report.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
-            self.data = json.loads(self.path.read_text(encoding="utf-8"))
+            self.data = read_json(self.path)
         else:
             self.data = {
                 "attempts": [],
@@ -50,9 +51,7 @@ class StageReport:
         return self.data["attempts"][-1] if self.data["attempts"] else {}
 
     def _save(self):
-        self.path.write_text(
-            json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_json(self.data, self.path)
 
 
 def build_benchmark_summary(output_path, stage_reports, model_metrics=None):
@@ -76,5 +75,5 @@ def build_benchmark_summary(output_path, stage_reports, model_metrics=None):
     }
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_json(summary, output_path)
     return summary

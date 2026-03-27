@@ -3,5 +3,8 @@ scikit-learn
 joblib
 python-dotenv
 langchain-openai
+langchain-community
+faiss-cpu
+langchain-text-splitters
 langgraph
 kaggle

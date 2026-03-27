@@ -9,6 +9,7 @@ from src.state import PipelineState, create_initial_state
 from src.utils.io_utils import ROOT_PATH
 from src.utils.kaggle_utils import prepare_kaggle_data
 from src.utils.guardrails import validate_csv
+from src.utils.rag import init_store
 
 
 def create_run_dir() -> Path:
@@ -42,6 +43,9 @@ def bootstrap_run() -> PipelineState:
     logger.info("Test data: %s", state["test_path"])
     logger.info("Sample submission: %s", state["sample_submission_path"])
     logger.info("Target column: %s", state["target_column"])
+
+    init_store()
+    logger.info("RAG store initialized")
 
     return state
 

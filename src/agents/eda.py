@@ -11,6 +11,7 @@ from src.utils.code_utils import (
     run_python_code,
 )
 from src.utils.llm_utils import invoke_llm
+from src.utils.rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,11 @@ def _generate_eda_code(state, feedback=None):
         test_path=state["test_path"],
         columns_str=columns_str,
     )
+
+    rag_context = retrieve_context(f"exploratory data analysis {columns_str[:200]}")
+    if rag_context:
+        prompt += f"\n\nRelevant reference material:\n{rag_context}\n"
+
     if feedback:
         prompt += f"""
 The previous EDA attempt had the following feedback. Please improve the code accordingly:
