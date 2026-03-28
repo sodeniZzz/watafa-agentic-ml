@@ -13,40 +13,109 @@ from src.utils.llm_utils import invoke_llm
 logger = logging.getLogger(__name__)
 
 
-TUNE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to tune and train the best model identified from the exploration phase. The task type (regression or classification) is inferred from the EDA report.
+TUNE_PROMPT_TEMPLATE = """You are a senior ML engineer specializing in hyperparameter optimization. Write Python code to tune the best model from the exploration phase using Optuna.
 
 Input:
 - Processed train dataset: {train_path}
 - Target column: {target_column}
-- Exploration metrics file: {metrics_path} (JSON file with model performance)
+- Exploration metrics file: {metrics_path} (JSON with model benchmarks)
+- Save final model to: {model_path}
 - Previous feedback (if any): {feedback}
 
-Requirements:
-1. Load the dataset with pandas.
-2. Use target column exactly named {target_column}.
-3. **DO NOT do any additional feature engineering or encoding.** The data is already fully processed by the feature engineering step. Use only numeric columns from the loaded dataset. Drop any remaining non-numeric columns (object dtype) before training.
-4. Split rows into train and validation sets with test_size=0.2, random_state=42.
-5. Fill missing values using median for all columns.
-6. Read the exploration metrics from {metrics_path} and select the best model based on the appropriate metric:
-   - For regression: choose the model with the lowest MSE (or highest R²).
-   - For classification: choose the model with the highest accuracy or F1 (based on EDA report).
-7. Perform hyperparameter tuning for that selected model using **Optuna**:
-   - Define an objective function that:
-     - Takes a trial and suggests hyperparameters specific to the selected model.
-     - Trains the model on the training split with suggested parameters.
-     - Evaluates on the validation split using the appropriate metric (e.g., negative MSE for regression, accuracy for classification).
-   - Use a reasonable search space for the selected model (e.g., for XGBoost: n_estimators, max_depth, learning_rate, etc.; for RandomForest: n_estimators, max_depth, etc.). Important: NEVER run validation over 'max_features' - do not ever pass it to optuna for running exps
-   - Run a study with n_trials=30 (or a number that fits within time constraints).
-   - Use `optuna.create_study(direction="maximize" or "minimize")` as appropriate.
-8. After tuning, retrieve the best parameters and train a final model on the **full train split** (the combined train+validation) with those parameters.
-9. Save the model bundle (including model, feature columns, fill values, best params) to:
-   {model_path}
-   You can use joblib or pickle.
-   The keys in the model bundle should be 'model', 'feature_columns', 'fill_values', 'best_params'.
-10. Print a short summary with the selected model, validation performance, and best parameters.
-11. Write only executable Python code, no explanations.
+## CRITICAL RULES:
+1. **NO additional feature engineering.** Data is already processed. Use only numeric columns. Drop object dtype.
+2. Fill missing values with median.
+3. Suppress all warnings: `warnings.filterwarnings("ignore")` and `optuna.logging.set_verbosity(optuna.logging.WARNING)`.
+4. NEVER tune 'max_features' parameter.
 
-**Note:** Ensure `optuna` is installed (pip install optuna). Use standard libraries: pandas, numpy, sklearn, optuna.
+## STEP-BY-STEP PROCEDURE:
+
+### Step 1: Select Best Model
+- Load metrics from {metrics_path}.
+- For regression: select model with highest r2_mean (or lowest mse_mean).
+- For classification: select model with highest f1_mean (or accuracy_mean).
+- Print which model was selected and why.
+
+### Step 2: Define Search Space
+Define a comprehensive search space for the selected model. Examples:
+
+**For XGBRegressor/XGBClassifier:**
+- n_estimators: int [200, 1500]
+- max_depth: int [3, 12]
+- learning_rate: float log [0.005, 0.3]
+- subsample: float [0.6, 1.0]
+- colsample_bytree: float [0.5, 1.0]
+- min_child_weight: int [1, 20]
+- reg_alpha: float log [1e-8, 10]
+- reg_lambda: float log [1e-8, 10]
+- gamma: float log [1e-8, 5]
+
+**For LGBMRegressor/LGBMClassifier:**
+- n_estimators: int [200, 1500]
+- max_depth: int [3, 12] (or -1)
+- learning_rate: float log [0.005, 0.3]
+- num_leaves: int [15, 127]
+- min_child_samples: int [5, 100]
+- subsample: float [0.6, 1.0]
+- colsample_bytree: float [0.5, 1.0]
+- reg_alpha: float log [1e-8, 10]
+- reg_lambda: float log [1e-8, 10]
+
+**For RandomForest/ExtraTrees (Regressor or Classifier):**
+- n_estimators: int [200, 1000]
+- max_depth: int [5, 30] or None
+- min_samples_split: int [2, 20]
+- min_samples_leaf: int [1, 10]
+
+**For CatBoost (Regressor or Classifier):**
+- iterations: int [200, 1500]
+- depth: int [3, 10]
+- learning_rate: float log [0.005, 0.3]
+- l2_leaf_reg: float log [1e-2, 10]
+- bagging_temperature: float [0, 1]
+- random_strength: float [1e-2, 10]
+
+**For GradientBoosting (Regressor or Classifier):**
+- n_estimators: int [200, 1000]
+- max_depth: int [3, 10]
+- learning_rate: float log [0.005, 0.3]
+- min_samples_split: int [2, 20]
+- min_samples_leaf: int [1, 10]
+- subsample: float [0.6, 1.0]
+
+### Step 3: Optuna Optimization
+- Use `optuna.create_study(direction=...)` with appropriate direction.
+- Use `MedianPruner(n_startup_trials=5, n_warmup_steps=0)` to prune bad trials early.
+- **Objective function uses a single holdout split** (test_size=0.2, random_state=42):
+  - Train on train split, evaluate on validation split.
+  - Return the validation metric.
+- For boosting models (XGBoost, LightGBM, CatBoost): use early stopping (early_stopping_rounds=30, eval on validation split).
+- Run **n_trials=40**.
+- Set random seed: `optuna.create_study(sampler=optuna.samplers.TPESampler(seed=42), ...)`.
+
+### Step 4: Train Final Model
+- Get best parameters from study.best_params.
+- Train final model on **ALL data** (no split) with best parameters.
+- For boosting models: use the same n_estimators from best trial (not early-stopped count).
+
+### Step 5: Save Model Bundle
+Save with joblib to {model_path}:
+```python
+{{
+    "model": final_model,
+    "feature_columns": list(X.columns),
+    "fill_values": dict(X.median()),
+    "best_params": study.best_params,
+}}
+```
+**IMPORTANT:** fill_values must be a **dict** (not list, not Series).
+
+### Step 6: Print Summary
+Print to stdout:
+- Selected model name.
+- Best validation score from best trial.
+- Best hyperparameters.
+- Number of trials completed.
 
 EDA report excerpt:
 {eda_report}

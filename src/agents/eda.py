@@ -16,23 +16,51 @@ from src.utils.rag import retrieve_context
 logger = logging.getLogger(__name__)
 
 
-EDA_PROMPT_TEMPLATE = """You are a data analysis expert. Write Python code for Exploratory Data Analysis (EDA) for the training dataset.
-The data is located in the file: {train_path}
-There is also a test file (you can use it for comparison): {test_path}
+EDA_PROMPT_TEMPLATE = """You are a senior data scientist. Write Python code for a comprehensive Exploratory Data Analysis. Print ALL results to stdout in a structured format.
 
-The code should perform the following tasks:
-- Based on the target, determine the type of the task and print it in the beginning of the report
-    - 2-class Classification 
-    - multi-class Classification (if the number of target if less that 30)
-    - Regression
-- Load the data using pandas.
-- Output basic information: shape, columns, dtypes, number of missing values, descriptive statistics for numeric columns.
-- For numeric features, calculate and output: number of unique values, min/max, quantiles.
-- For categorical features, output unique values (if there are fewer than 20).
-- Output a brief textual summary (key observations) to stdout.
+Data files:
+- Train: {train_path}
+- Test: {test_path}
 
 Column information (first 5 rows):
 {columns_str}
+
+## The code must perform the following analysis and print results in this EXACT order:
+
+### 1. Task Type Detection
+- Analyze the "target" column to determine the task type. Print ONE of:
+  - "TASK_TYPE: Regression" — if target is continuous (float or many unique int values)
+  - "TASK_TYPE: Binary Classification" — if target has exactly 2 unique values
+  - "TASK_TYPE: Multiclass Classification" — if target has 3-30 unique values
+- Print target distribution: value_counts for classification, describe() for regression.
+- Print skewness of target. If skewness > 1, note that log-transform may help.
+
+### 2. Dataset Overview
+- Print shapes of train and test.
+- Print column names, dtypes, and non-null counts (df.info style).
+- Print number and percentage of missing values per column, sorted descending.
+- Flag columns with >50% missing.
+
+### 3. Numeric Feature Analysis
+- For each numeric column: print min, max, mean, median, std, skewness, number of unique values.
+- Print top-10 features most correlated with target (by absolute Pearson correlation).
+- Detect outliers using IQR method: for each numeric column, print count of values below Q1-1.5*IQR or above Q3+1.5*IQR.
+
+### 4. Categorical Feature Analysis
+- For each categorical (object dtype) column: print nunique, and value_counts if nunique <= 20.
+- For high-cardinality categoricals (nunique > 20): print nunique and top-5 most frequent values.
+
+### 5. Train vs Test Comparison
+- For each numeric column: compare mean and std between train and test. Flag columns where the difference in mean exceeds 1 std (potential data drift).
+- For each categorical column: check if test has categories not present in train.
+
+### 6. Summary and Recommendations
+Print a concise summary:
+- Task type and target characteristics.
+- Most important features (by correlation with target).
+- Columns to consider dropping (high missing %, zero variance, ID-like).
+- Potential issues: class imbalance, skewed distributions, data drift between train/test.
+- Recommended feature engineering strategies based on the data.
 """
 
 EDA_VALIDATOR_PROMPT_TEMPLATE = """You are an expert data analyst validating an EDA report.

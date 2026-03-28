@@ -13,56 +13,63 @@ from src.utils.llm_utils import invoke_llm
 logger = logging.getLogger(__name__)
 
 
-EXPLORE_PROMPT_TEMPLATE = """You are an ML training expert. Write Python code to train multiple models and compare their validation performance. The task type (regression or classification) will be determined from the EDA report.
+EXPLORE_PROMPT_TEMPLATE = """You are a senior ML engineer. Write Python code to benchmark multiple models using cross-validation. The task type is determined from the EDA report.
 
 Input:
 - Processed train dataset: {train_path}
 - Target column: {target_column}
-- Task type: inferred from EDA report (regression, binary classification, or multiclass classification)
+- Save metrics to: {metrics_path}
 
-Requirements:
-1. Load the dataset with pandas.
-2. Use target column exactly named {target_column}.
-3. **DO NOT do any additional feature engineering or encoding.** The data is already fully processed by the feature engineering step. Use only numeric columns from the loaded dataset. Drop any remaining non-numeric columns (object dtype) before training.
-4. Split data into train and validation (test_size=0.2, random_state=42).
-5. Fill missing values using median for all columns.
-6. Based on the task type (identified from the EDA report):
-   - If **regression**, train the following models with default parameters:
-     - RandomForestRegressor
-     - XGBRegressor
-     - LGBMRegressor
-     - GradientBoostingRegressor
-     - ExtraTreesRegressor
-     - CatBoostRegressor
-     Compute metrics: Mean Squared Error (MSE), Mean Absolute Error (MAE), R² score.
-   - If **binary classification** (2 classes), train:
-     - RandomForestClassifier
-     - XGBClassifier
-     - LGBMClassifier
-     - GradientBoostingClassifier
-     - LogisticRegression
-     - SVC (with probability=True for metrics)
-     - KNeighborsClassifier
-     - CatBoostClassifier
-     Compute metrics: Accuracy, Precision, Recall, F1-score, ROC-AUC.
-   - If **multiclass classification** (>2 classes), train:
-     - RandomForestClassifier
-     - XGBClassifier
-     - LGBMClassifier
-     - GradientBoostingClassifier
-     - LogisticRegression (multinomial)
-     - SVC (with probability=True)
-     - KNeighborsClassifier
-     - CatBoostClassifier
-     Compute metrics: Accuracy, Macro F1-score, Weighted F1-score.
-7. For each model, fit on train, predict on validation, compute the appropriate metrics.
-8. Save the metrics for each model in a JSON file at:
-   {metrics_path}
-   Format: {{"model_name": {{"metric1": value, "metric2": value, ...}}}}
-   Use the appropriate metric names (e.g., for regression: "mse", "mae", "r2"; for classification: "accuracy", "f1_macro", etc.).
-9. Print a short summary of the results (e.g., top 3 models by main metric).
-10. Do not save the models (only the JSON report is needed).
-11. Write only executable Python code, no explanations.
+## CRITICAL RULES:
+1. **NO additional feature engineering or encoding.** Data is already processed. Use only numeric columns. Drop any object dtype columns.
+2. Fill missing values with median (computed on train folds only).
+3. Suppress all warnings: `warnings.filterwarnings("ignore")`.
+
+## EVALUATION STRATEGY:
+- Use **5-fold cross-validation** (StratifiedKFold for classification, KFold for regression, shuffle=True, random_state=42).
+- For each model, compute metrics on each fold, then report **mean and std**.
+- This gives reliable estimates and helps detect overfitting (high std = unstable model).
+
+## MODELS TO TRAIN:
+
+### If Regression (from EDA report):
+Train these models with reasonable starting parameters:
+- RandomForestRegressor(n_estimators=300, max_depth=15, min_samples_leaf=5, n_jobs=-1, random_state=42)
+- XGBRegressor(n_estimators=500, max_depth=6, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
+- LGBMRegressor(n_estimators=500, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
+- GradientBoostingRegressor(n_estimators=300, max_depth=5, learning_rate=0.05, random_state=42)
+- ExtraTreesRegressor(n_estimators=300, max_depth=15, min_samples_leaf=5, n_jobs=-1, random_state=42)
+- CatBoostRegressor(iterations=500, depth=6, learning_rate=0.05, verbose=0, random_seed=42)
+
+Metrics per fold: MSE, MAE, R².
+
+### If Binary Classification (from EDA report):
+- RandomForestClassifier(n_estimators=300, max_depth=15, min_samples_leaf=5, n_jobs=-1, random_state=42)
+- XGBClassifier(n_estimators=500, max_depth=6, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0, eval_metric="logloss")
+- LGBMClassifier(n_estimators=500, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
+- GradientBoostingClassifier(n_estimators=300, max_depth=5, learning_rate=0.05, random_state=42)
+- CatBoostClassifier(iterations=500, depth=6, learning_rate=0.05, verbose=0, random_seed=42)
+- LogisticRegression(max_iter=1000, random_state=42)
+
+Metrics per fold: Accuracy, F1-score, ROC-AUC, Precision, Recall.
+
+### If Multiclass Classification (from EDA report):
+Same models as binary (except LogisticRegression uses solver="lbfgs", multi_class="multinomial").
+Metrics per fold: Accuracy, Macro F1, Weighted F1.
+
+## OUTPUT FORMAT:
+1. Save metrics JSON to {metrics_path}:
+   ```
+   {{"ModelName": {{"metric_mean": value, "metric_std": value, ...}}}}
+   ```
+   Include both mean and std for each metric (e.g., "mse_mean", "mse_std", "r2_mean", "r2_std").
+
+2. Print a ranked summary table to stdout:
+   - All models sorted by primary metric (R² for regression, F1 for classification).
+   - Format: "Rank | Model | primary_metric (mean ± std) | secondary_metrics".
+   - Highlight the best model.
+
+3. If any model fails to train (import error, convergence issues), skip it and note the error. Do NOT let one failure stop the entire script.
 
 EDA report excerpt:
 {eda_report}
