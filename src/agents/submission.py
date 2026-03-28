@@ -43,7 +43,7 @@ def build_submission_file(state: PipelineState) -> Path:
 def run_submission_agent(state: PipelineState) -> PipelineState:
     logger.info("Submission node started")
 
-    if "model_path" not in state:
+    if not state.get("model_path"):
         logger.error("Submission skipped: best model path is missing")
         return state
 

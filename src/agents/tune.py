@@ -126,8 +126,11 @@ Feature engineering report excerpt:
 
 
 def should_continue_after_tune_validation(state: PipelineState) -> str:
-    if state["tune_valid"] or state["tune_attempts"] >= state["tune_max_attempts"]:
+    if state["tune_valid"]:
         return "submission"
+    if state["tune_attempts"] >= state["tune_max_attempts"]:
+        logger.warning("Tune failed after %s attempts, skipping to report", state["tune_attempts"])
+        return "report"
     return "tune"
 
 
@@ -220,8 +223,7 @@ def run_tune_validator(state: PipelineState) -> PipelineState:
         feedback.append(f"Tuning successful. Model saved to {model_path}.")
 
     if not valid and state["tune_attempts"] >= state["tune_max_attempts"]:
-        feedback.append("Max attempts reached. Proceeding with possibly missing model.")
-        valid = True
+        feedback.append("Max attempts reached. Skipping to report.")
 
     feedback_text = "\n".join(feedback) if feedback else "Tuning looks good."
     state["tune_report"].log_validation(valid, feedback_text)

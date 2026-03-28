@@ -11,69 +11,74 @@ from src.utils.metrics_utils import build_benchmark_summary
 
 logger = logging.getLogger(__name__)
 
-REPORT_PROMPT_TEMPLATE = """You are a data science report writer. Generate a clean, professional benchmark report in Markdown. Use well-formatted tables with alignment. Be factual — no recommendations, only results.
+REPORT_PROMPT_TEMPLATE = """You are a data science report writer. Generate a clean, professional benchmark report in Markdown.
+
+CRITICAL RULE — FAILED STAGES:
+In the JSON below, each agent has `final_valid`. Check it FIRST before writing each section.
+If `final_valid` is false or null for a stage, the ENTIRE section for that stage must be ONLY this one line:
+> ⚠️ `<stage_name>` failed after <N> attempts and was skipped.
+Do NOT invent or hallucinate data for failed stages. Do NOT write bullet points, tables, or any other content for them.
 
 ## INPUT DATA:
 
 Pipeline metrics (JSON):
 {summary_json}
 
-EDA output:
+EDA output (empty if EDA failed):
 {eda_output}
 
-Feature engineering summary:
+Feature engineering summary (empty if FE failed):
 {feature_summary}
 
-Tuning results:
+Tuning results (empty if tune failed):
 {tune_output}
 
-## REPORT STRUCTURE (follow this exactly):
+## REPORT STRUCTURE (follow exactly, do not add or repeat sections):
 
 # ML Pipeline Benchmark Report
 
 ## 1. Data Overview
+If `eda` final_valid is false/null → one-liner failure message only.
+Otherwise:
 - Dataset size (rows × columns for train and test).
 - Task type (regression / binary classification / multiclass).
-- Target variable characteristics (from EDA).
+- Target variable characteristics (from EDA output above).
 - Key observations: missing values, class balance, notable patterns.
 
 ## 2. Feature Engineering
+If `feature_engineering` final_valid is false/null → one-liner failure message only.
+Otherwise:
 - Number of original features → number of final features.
-- Summary of transformations applied: date parsing, encoding methods, new features created.
+- Summary of transformations applied.
 - Features dropped and why.
 
 ## 3. Model Comparison
-Create a **well-formatted markdown table** with ALL models from exploration, sorted by primary metric (best first):
-
-For regression:
-| Rank | Model | R² (mean ± std) | MSE (mean ± std) | MAE (mean ± std) |
-|------|-------|-----------------|-------------------|-------------------|
-
-For classification:
-| Rank | Model | F1 (mean ± std) | Accuracy (mean ± std) | ROC-AUC (mean ± std) |
-|------|-------|-----------------|----------------------|---------------------|
-
-Mark the best model with **bold** or ★.
+If `train` final_valid is false/null → one-liner failure message only.
+Otherwise create a markdown table with ALL models sorted by primary metric (best first):
+For regression: columns Rank, Model, R² (mean ± std), MSE (mean ± std), MAE (mean ± std).
+For classification: columns Rank, Model, F1 (mean ± std), Accuracy (mean ± std), ROC-AUC (mean ± std).
+Mark the best model with **bold**.
 
 ## 4. Hyperparameter Tuning
-- Which model was selected for tuning and why.
-- Best hyperparameters (formatted as a clean list).
-- Best cross-validation score after tuning.
-- Number of Optuna trials run.
+If `tune` final_valid is false/null → one-liner failure message only.
+Otherwise:
+- Which model was selected for tuning.
+- Best hyperparameters.
+- Best score after tuning.
+- Number of Optuna trials.
+- Whether ensemble beat single model (if applicable).
 
 ## 5. Pipeline Execution Summary
-Table of agent performance:
-
-| Agent | Attempts | Duration (s) | Tokens In | Tokens Out |
-|-------|----------|-------------|-----------|------------|
-
-Total pipeline duration and total tokens.
+ALWAYS include this section regardless of failures.
+Table with columns: Agent, Attempts, Status, Duration (s), Tokens In, Tokens Out.
+Status column: ✅ if final_valid is true, ❌ if false/null.
+Add a totals row at the bottom.
 
 ## FORMATTING RULES:
-- Use `|` aligned markdown tables (not bullet lists for tabular data).
-- Round all numbers to 4 decimal places for metrics, 1 decimal for time.
-- Use code formatting for model names and parameter values.
-- Keep the report under 300 lines.
+- Use aligned markdown tables (not bullet lists for tabular data).
+- Round metrics to 4 decimal places, time to 1 decimal.
+- The report must have EXACTLY 5 sections numbered 1-5. No duplicates, no extra sections.
+- Keep under 200 lines.
 """
 
 

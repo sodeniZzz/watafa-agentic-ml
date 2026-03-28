@@ -61,13 +61,13 @@ def build_graph():
     graph_builder.add_conditional_edges(
         "train_validator",
         should_continue_after_train_validation,
-        {"tune": "tune", "train": "train"},
+        {"tune": "tune", "train": "train", "report": "report"},
     )
     graph_builder.add_edge("tune", "tune_validator")
     graph_builder.add_conditional_edges(
         "tune_validator",
         should_continue_after_tune_validation,
-        {"submission": "submission", "tune": "tune"},
+        {"submission": "submission", "tune": "tune", "report": "report"},
     )
     graph_builder.add_edge("submission", "report")
     graph_builder.add_edge("report", END)

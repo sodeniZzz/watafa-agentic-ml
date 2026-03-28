@@ -80,8 +80,11 @@ Feature engineering report excerpt:
 
 
 def should_continue_after_train_validation(state: PipelineState) -> str:
-    if state["train_valid"] or state["train_attempts"] >= state["train_max_attempts"]:
+    if state["train_valid"]:
         return "tune"
+    if state["train_attempts"] >= state["train_max_attempts"]:
+        logger.warning("Train failed after %s attempts, skipping to report", state["train_attempts"])
+        return "report"
     return "train"
 
 
