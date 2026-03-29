@@ -4,9 +4,9 @@
   <a href="#about">About</a> •
   <a href="#pipeline-architecture">Pipeline Architecture</a> •
   <a href="#retrieval-augmented-generation-rag">RAG</a> •
+  <a href="#monitoring">Monitoring</a> •
   <a href="#project-structure">Project Structure</a> •
   <a href="#how-to-use">How To Use</a> •
-  <a href="#monitoring">Monitoring</a> •
   <a href="#license">License</a>
 </p>
 
@@ -25,8 +25,6 @@ Everything is automated: data download from Kaggle, EDA, feature engineering, mo
 ## Pipeline Architecture
 
 <img width="2570" height="531" alt="flow" src="https://github.com/user-attachments/assets/925a3c47-90ce-4f1e-a2b8-1882527b3c8b" />
-
-### What each node does
 
 | Node | Responsibility | How it works | After success |
 |------|----------------|--------------|---------------|
