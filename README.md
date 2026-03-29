@@ -35,8 +35,6 @@ During the **train (exploration) phase**, all supported models are evaluated wit
 
 The pipeline is a **directed graph** where each node is a specialised agent. All communication happens through a shared `PipelineState` (typed dictionary) that holds file paths, metrics, feedback, attempt counters, and validation flags.
 
-<img src="img/architecture.png" alt="Pipeline Architecture" width="100%"/>
-
 ### Node order and transitions
 
 ```
