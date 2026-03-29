@@ -31,7 +31,7 @@ watafa-agentic-ml/
 │   │   ├── eda.py               # Exploratory data analysis agent
 │   │   ├── feature_engineering.py
 │   │   ├── train.py             # Model exploration & benchmarking
-│   │   ├── tune.py              # Optuna tuning + ensemble
+│   │   ├── tune.py              # Optuna tuning
 │   │   ├── submission.py        # Kaggle submission
 │   │   └── report.py            # Benchmark report generation
 │   ├── utils/
@@ -66,7 +66,13 @@ watafa-agentic-ml/
    pip install -r requirements.txt
    ```
 
-3. Run the pipeline:
+3. Copy `.env.example` to `.env` and fill in your API keys:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+4. Run the pipeline:
 
    ```bash
    python run.py

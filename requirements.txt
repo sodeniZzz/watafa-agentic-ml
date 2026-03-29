@@ -1,5 +1,10 @@
 pandas
+numpy
 scikit-learn
+xgboost
+lightgbm
+catboost
+optuna
 joblib
 python-dotenv
 langchain-openai
