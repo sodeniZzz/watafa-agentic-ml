@@ -1,4 +1,3 @@
-
 # <center>Workflow Agents for Tabular AutoFit & Analysis </center>
 
 <p align="center">
@@ -35,13 +34,7 @@ During the **train (exploration) phase**, all supported models are evaluated wit
 
 The pipeline is a **directed graph** where each node is a specialised agent. All communication happens through a shared `PipelineState` (typed dictionary) that holds file paths, metrics, feedback, attempt counters, and validation flags.
 
-### Node order and transitions
-
-```
-EDA → EDA Validator → Feature Engineering → FE Validator → Train → Train Validator → Tune → Tune Validator → Submission → Report → END
-```
-
-**Conditional edges** allow retry loops (see below). If a validator fails, the graph returns to the corresponding work node (up to `_max_attempts`). After the maximum attempts, the pipeline either proceeds (if the stage is not critical) or skips to the final report.
+<img width="2570" height="531" alt="flow" src="https://github.com/user-attachments/assets/925a3c47-90ce-4f1e-a2b8-1882527b3c8b" />
 
 ### What each node does
 
