@@ -29,6 +29,13 @@ def get_url() -> str:
     return api
 
 
+def get_embedding_model_name() -> str:
+    model = os.getenv("EMBEDDING_MODEL_NAME")
+    if not model:
+        raise ValueError("EMBEDDING_MODEL_NAME is not set in the environment or .env file.")
+    return model
+
+
 @lru_cache(maxsize=1)
 def build_llm(
     temperature: float = 0.0,

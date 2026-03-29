@@ -34,7 +34,7 @@ def download_competition_data(data_dir: Path) -> Path:
             path.unlink()
 
     api.competition_download_files(
-        competition=competition, path=str(data_dir), quiet=False
+        competition=competition, path=str(data_dir), quiet=True
     )
 
     archive_path = data_dir / f"{competition}.zip"

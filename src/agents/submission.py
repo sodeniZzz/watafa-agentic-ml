@@ -41,15 +41,13 @@ def build_submission_file(state: PipelineState) -> Path:
 
 
 def run_submission_agent(state: PipelineState) -> PipelineState:
-    logger.info("Submission node started")
-
     if not state.get("model_path"):
-        logger.error("Submission skipped: best model path is missing")
+        logger.error("Submission skipped: model path is missing")
         return state
 
     start = time.time()
     submission_path = build_submission_file(state)
-    logger.info("Submission saved to %s", submission_path)
+    logger.info("Submission saved → %s", submission_path)
 
     submit_to_kaggle(submission_path, "Agentic ML pipeline submission")
     logger.info("Submission sent to Kaggle")

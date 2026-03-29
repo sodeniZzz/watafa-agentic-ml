@@ -130,10 +130,9 @@ def _generate_feature_eng_code(state: PipelineState, feedback: str = None):
 
 
 def run_feature_eng_agent(state: PipelineState) -> PipelineState:
-    logger.info("Feature engineering node started")
     current_attempt = state.get("fe_attempts", 0)
     new_attempt = current_attempt + 1
-    logger.info(f"Feature engineering attempt {new_attempt}")
+    logger.info("FE attempt %s", new_attempt)
 
     start = time.time()
     feedback = state.get("fe_feedback")
@@ -143,7 +142,7 @@ def run_feature_eng_agent(state: PipelineState) -> PipelineState:
     stage_dir.mkdir(parents=True, exist_ok=True)
     code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
-    logger.info("Feature engineering code saved to %s", code_path)
+    logger.info("FE code saved → %s", code_path)
 
     execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=120)
     duration = time.time() - start
@@ -162,7 +161,7 @@ def run_feature_eng_agent(state: PipelineState) -> PipelineState:
         error=execution_result["error"],
     )
 
-    logger.info("Feature engineering summary saved to %s", summary_path)
+    logger.info("FE summary saved → %s", summary_path)
 
     processed_train = stage_dir / "processed_train.csv"
     processed_test = stage_dir / "processed_test.csv"
@@ -183,7 +182,7 @@ def run_feature_eng_agent(state: PipelineState) -> PipelineState:
 
 
 def run_fe_validator(state: PipelineState) -> PipelineState:
-    logger.info("Feature engineering validator started")
+    logger.info("FE validation started")
 
     processed_train = state.get("processed_train_path")
     processed_test = state.get("processed_test_path")
@@ -226,5 +225,5 @@ def run_fe_validator(state: PipelineState) -> PipelineState:
     new_state["fe_feedback"] = feedback_text
     state["fe_report"].log_validation(valid, feedback_text)
 
-    logger.info(f"Feature engineering validation completed. Valid: {valid}")
+    logger.info("FE validation: %s", "valid" if valid else "invalid")
     return new_state

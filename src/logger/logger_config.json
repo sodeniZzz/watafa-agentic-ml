@@ -3,7 +3,8 @@
   "disable_existing_loggers": false,
   "formatters": {
     "simple": {
-      "format": "%(message)s"
+      "format": "%(asctime)s [%(levelname)s] %(message)s",
+      "datefmt": "%H:%M:%S"
     },
     "datetime": {
       "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",

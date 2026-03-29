@@ -129,7 +129,7 @@ def should_continue_after_tune_validation(state: PipelineState) -> str:
     if state["tune_valid"]:
         return "submission"
     if state["tune_attempts"] >= state["tune_max_attempts"]:
-        logger.warning("Tune failed after %s attempts, skipping to report", state["tune_attempts"])
+        logger.warning("Tune failed after %s attempts, early stop → report", state["tune_attempts"])
         return "report"
     return "tune"
 
@@ -165,8 +165,6 @@ def _generate_tune_code(state: PipelineState, feedback: str):
 
 
 def run_tune_agent(state: PipelineState) -> PipelineState:
-    logger.info("Tune node started")
-
     new_attempt = state["tune_attempts"] + 1
     logger.info("Tune attempt %s", new_attempt)
 
@@ -177,9 +175,9 @@ def run_tune_agent(state: PipelineState) -> PipelineState:
     stage_dir.mkdir(parents=True, exist_ok=True)
     code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
-    logger.info("Tune code saved to %s", code_path)
+    logger.info("Tune code saved → %s", code_path)
 
-    execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=1800)
+    execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=1200)
     duration = time.time() - start
 
     state["tune_report"].log_attempt(
@@ -202,7 +200,7 @@ def run_tune_agent(state: PipelineState) -> PipelineState:
 
 
 def run_tune_validator(state: PipelineState) -> PipelineState:
-    logger.info("Tune validator started")
+    logger.info("Tune validation started")
 
     valid = False
     feedback = []
@@ -228,7 +226,7 @@ def run_tune_validator(state: PipelineState) -> PipelineState:
     feedback_text = "\n".join(feedback) if feedback else "Tuning looks good."
     state["tune_report"].log_validation(valid, feedback_text)
 
-    logger.info("Tune validation completed. Valid: %s", valid)
+    logger.info("Tune validation: %s", "valid" if valid else "invalid")
     return {
         **state,
         "tune_feedback": feedback_text,
