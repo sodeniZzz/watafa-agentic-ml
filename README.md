@@ -1,12 +1,11 @@
-Below is the **updated README** with the requested sections: graph structure, node responsibilities, execution order, loops, and security handling. I've integrated the new content right after the **About** section, keeping everything clear and structured.
 
----
-
-# Workflow Agents for Tabular AutoFit & Analysis
+# <center>Workflow Agents for Tabular AutoFit & Analysis </center>
 
 <p align="center">
   <a href="#about">About</a> •
   <a href="#pipeline-architecture">Pipeline Architecture</a> •
+  <a href="#retrieval-augmented-generation-rag">Retrieval-Augmented Generation (RAG)</a> •
+  <a href="#data-collection--submission">Data Collection & Submission</a> •
   <a href="#project-structure">Project Structure</a> •
   <a href="#how-to-use">How To Use</a> •
   <a href="#license">License</a>
@@ -22,9 +21,21 @@ LLM-driven multi‑agent pipeline that automates Kaggle tabular competitions end
 
 Built with LangGraph. Each pipeline stage is an autonomous agent that generates and executes Python code, validates results, and retries on failure (up to 3 attempts). Includes security guardrails, RAG‑powered context from notebooks/docs, and automatic early stopping when critical stages fail.
 
+### Multi‑task & Multi‑model Support
+
+The pipeline automatically detects the problem type from the EDA report and adapts its behaviour:
+
+- **Regression** – uses MSE, MAE, R² metrics; trains models like RandomForest, XGBoost, LightGBM, CatBoost, Ridge, etc.
+- **Binary classification** – uses Accuracy, F1, ROC‑AUC, Precision, Recall; includes LogisticRegression, SVC, and tree‑based classifiers.
+- **Multiclass classification** – uses Macro/Weighted F1; sets `multi_class="multinomial"` for linear models.
+
+During the **train (exploration) phase**, all supported models are evaluated with **5‑fold cross‑validation** using default (sensible) hyperparameters. The results are ranked, and the best model (by primary metric) is automatically selected for the subsequent **tuning phase** (Optuna). This allows fair comparison between different architectures without manual intervention.
+
 ## Pipeline Architecture
 
 The pipeline is a **directed graph** where each node is a specialised agent. All communication happens through a shared `PipelineState` (typed dictionary) that holds file paths, metrics, feedback, attempt counters, and validation flags.
+
+<img src="img/architecture.png" alt="Pipeline Architecture" width="100%"/>
 
 ### Node order and transitions
 
@@ -62,27 +73,34 @@ After the maximum attempts, the pipeline **does not block** – it continues to 
 
 ### Security handling
 
-Because the agents generate arbitrary Python code, the pipeline implements several security layers:
+- **Sandboxed execution** – All generated code runs in an isolated subprocess with a timeout (30–1800s) and captured stdout/stderr.
+- **Path whitelisting** – Code only accesses explicitly provided file paths; other system paths are blocked.
+- **Dangerous module blacklist** – Imports like `os.system`, `subprocess`, `eval`, `exec`, `open` (outside allowed dirs) are rejected before execution.
+- **Resource limits** – Timeout prevents infinite loops; no direct memory/CPU limits, but the subprocess environment is minimal.
 
-1. **Sandboxed execution**  
-   `run_python_code()` executes code in a **subprocess** with a timeout (30‑1800 seconds) and captures stdout/stderr. The working directory is isolated per stage (`run_dir/<stage>/`).
 
-2. **Path whitelisting**  
-   The generated code only has access to explicitly passed file paths (`train_path`, `test_path`, `processed_train_path`, etc.). All other system paths are blocked by the subprocess environment.
+## Retrieval-Augmented Generation (RAG)
 
-3. **Dangerous module blacklist** (implemented in `guardrails.py`)  
-   Before execution, the code is scanned for banned imports such as `os.system`, `subprocess`, `eval`, `exec`, `__import__`, `open` (with write outside allowed dirs), `shutil`, `pickle` (except `joblib`), etc. If a banned pattern is found, execution is rejected.
+### Knowledge Base Contents
+The RAG module indexes **public Kaggle notebooks** from **similar competitions** (e.g., previous real estate prediction challenges, regression tasks with tabular data). Each notebook is converted to text, chunked, embedded, and stored in a **FAISS vector database** .
 
-4. **Resource limits**  
-   The subprocess uses a timeout; memory and CPU are limited by the OS (no hard limits, but the timeout prevents infinite loops).
+### When & How It Is Used
+The RAG context is injected **only into the EDA and Feature Engineering prompts** . When the agent generates code for these stages, it first performs a semantic search over the knowledge base using the column names and task description as a query. The top‑3 most relevant notebook excerpts are appended to the prompt, providing the LLM with proven examples of similar data transformations, feature creation, and EDA patterns .
 
-5. **Post‑execution validation**  
-   Each validator checks that the output files are within the expected directory and that no traceback appears in stderr. Any suspicious output (e.g., an attempt to delete files) is treated as a failure.
+### Technical Implementation
+- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` (384‑dim, fast & compact)
+- **Vector Store**: FAISS index built offline from `knowledge/` directory (`.ipynb`, `.md` files)
+- **Retrieval**: Cosine similarity search, top‑k = 3
 
-6. **Environment sanitisation**  
-   The subprocess inherits a minimal environment (only `PATH` and required variables). The `SESSION_DIR` environment variable is set to the current run directory, but no other sensitive variables are passed.
 
-These measures make the pipeline safe for running LLM‑generated code in a controlled setting.
+## Data Collection & Submission
+
+### Automatic Data Download
+The pipeline automatically downloads competition data via the **Kaggle API** . Upon initialization, the agent uses the official `kaggle` Python package to authenticate (using `KAGGLE_USERNAME` and `KAGGLE_API_KEY` from `.env`) and downloads `train.csv`, `test.csv`, and `sample_submission.csv` directly from the competition page . No manual data preparation is required.
+
+### Automatic Submission
+After the tuned model generates predictions, the pipeline automatically submits the resulting `submission.csv` to Kaggle using `api.competition_submit()` . The submission message includes a timestamp and pipeline version for traceability. The CLI command `kaggle competitions submit -f submission.csv -m "..."` is executed in a subprocess, and the return code is logged. This enables fully unattended participation in Kaggle competitions .
+
 
 ## Project Structure
 
