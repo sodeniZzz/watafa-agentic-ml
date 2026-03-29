@@ -3,17 +3,14 @@
 import hashlib
 import json
 import logging
-import os
 from functools import lru_cache
 
-from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.utils.io_utils import ROOT_PATH
-
-load_dotenv()
+from src.utils.llm_utils import get_embedding_model_name, get_openrouter_api_key, get_url
 
 logger = logging.getLogger(__name__)
 logging.getLogger("faiss").setLevel(logging.WARNING)
@@ -60,9 +57,9 @@ def _get_store():
         return None
 
     embeddings = OpenAIEmbeddings(
-        model=os.getenv("EMBEDDING_MODEL_NAME"),
-        api_key=os.getenv("API_KEY"),
-        base_url=os.getenv("API_URL"),
+        model=get_embedding_model_name(),
+        api_key=get_openrouter_api_key(),
+        base_url=get_url(),
     )
 
     current_hash = _compute_hash()

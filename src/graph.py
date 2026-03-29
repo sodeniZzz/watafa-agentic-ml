@@ -1,7 +1,9 @@
 import logging
+from functools import wraps
 
 from langgraph.graph import END, StateGraph
 
+from src.logger.logger import log_stage
 from src.state import PipelineState
 
 from src.agents.eda import (
@@ -30,19 +32,36 @@ from src.agents.report import run_report_agent
 logger = logging.getLogger(__name__)
 
 
+_stage_printed = set()
+
+
+def _with_stage_header(name):
+    """Decorator that prints a stage separator only on first call."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(state):
+            if name not in _stage_printed:
+                log_stage(name)
+                _stage_printed.add(name)
+            return fn(state)
+        return wrapper
+    return decorator
+
+
 def build_graph():
+    _stage_printed.clear()
     graph_builder = StateGraph(PipelineState)
 
-    graph_builder.add_node("eda", run_eda_agent)
+    graph_builder.add_node("eda", _with_stage_header("EDA")(run_eda_agent))
     graph_builder.add_node("eda_validator", run_eda_validator)
-    graph_builder.add_node("feature_engineering", run_feature_eng_agent)
+    graph_builder.add_node("feature_engineering", _with_stage_header("Feature Engineering")(run_feature_eng_agent))
     graph_builder.add_node("feature_engineering_validator", run_fe_validator)
-    graph_builder.add_node("train", run_train_agent)
+    graph_builder.add_node("train", _with_stage_header("Train")(run_train_agent))
     graph_builder.add_node("train_validator", run_train_validator)
-    graph_builder.add_node("tune", run_tune_agent)
+    graph_builder.add_node("tune", _with_stage_header("Tune")(run_tune_agent))
     graph_builder.add_node("tune_validator", run_tune_validator)
-    graph_builder.add_node("submission", run_submission_agent)
-    graph_builder.add_node("report", run_report_agent)
+    graph_builder.add_node("submission", _with_stage_header("Submission")(run_submission_agent))
+    graph_builder.add_node("report", _with_stage_header("Report")(run_report_agent))
 
     graph_builder.set_entry_point("eda")
     graph_builder.add_edge("eda", "eda_validator")
@@ -76,7 +95,4 @@ def build_graph():
 
 
 def run_graph(state: PipelineState) -> PipelineState:
-    logger.info("Graph execution started")
-    final_state = build_graph().invoke(state)
-    logger.info("Graph execution finished")
-    return final_state
+    return build_graph().invoke(state)

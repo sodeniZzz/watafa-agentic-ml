@@ -83,7 +83,7 @@ Add a totals row at the bottom.
 
 
 def run_report_agent(state: PipelineState) -> PipelineState:
-    logger.info("Report node started")
+    logger.info("Generating benchmark report")
 
     reports_dir = state["run_dir"] / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +133,6 @@ def run_report_agent(state: PipelineState) -> PipelineState:
     result = invoke_llm(prompt)
     report_path = reports_dir / "benchmark_report.md"
     report_path.write_text(result["text"], encoding="utf-8")
-    logger.info("Benchmark report saved to %s", report_path)
+    logger.info("Benchmark report saved → %s", report_path)
 
     return state

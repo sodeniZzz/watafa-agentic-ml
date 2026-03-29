@@ -136,11 +136,9 @@ Write only the code, without any additional explanations. The code should be rea
 
 
 def run_eda_agent(state: PipelineState) -> PipelineState:
-    logger.info("EDA node started")
-
     current = state.get("eda_attempts", 0)
     new_attempt = current + 1
-    logger.info(f"EDA attempt {new_attempt}")
+    logger.info("EDA attempt %s", new_attempt)
 
     start = time.time()
     feedback = state.get("eda_feedback")
@@ -168,7 +166,7 @@ def run_eda_agent(state: PipelineState) -> PipelineState:
         error=execution_result["error"],
     )
 
-    logger.info("EDA output saved to %s", output_path)
+    logger.info("EDA output saved → %s", output_path)
 
     new_state = dict(state)
     new_state["eda_attempts"] = new_attempt
@@ -177,7 +175,7 @@ def run_eda_agent(state: PipelineState) -> PipelineState:
 
 
 def run_eda_validator(state: PipelineState) -> PipelineState:
-    logger.info("EDA validator node started")
+    logger.info("EDA validation started")
 
     output_path = state.get("eda_output_path")
     if not output_path or not Path(output_path).exists():
@@ -211,5 +209,5 @@ def run_eda_validator(state: PipelineState) -> PipelineState:
     new_state["eda_feedback"] = feedback
     state["eda_report"].log_validation(valid, feedback)
 
-    logger.info(f"EDA validation completed. Valid: {valid}")
+    logger.info("EDA validation: %s", "valid" if valid else "invalid")
     return new_state

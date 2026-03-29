@@ -4,6 +4,8 @@ from pathlib import Path
 
 from src.utils.io_utils import ROOT_PATH, read_json
 
+LINE_WIDTH = 50
+
 
 def setup_logging(save_dir, log_config=None, default_level=logging.INFO):
     """
@@ -30,3 +32,27 @@ def setup_logging(save_dir, log_config=None, default_level=logging.INFO):
     else:
         print(f"[logger] Config not found at {log_config}, using basicConfig")
         logging.basicConfig(level=default_level)
+
+
+def log_header(*lines: str):
+    """Print a double-line header block to console."""
+    border = "═" * LINE_WIDTH
+    print(border)
+    for line in lines:
+        print(f"  {line}")
+    print(border)
+
+
+def log_stage(name: str):
+    """Print a single-line stage separator to console."""
+    label = f"── Stage: {name} "
+    print(f"\n{label}{'─' * (LINE_WIDTH - len(label))}")
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds into 'Xm Ys' string."""
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    if minutes > 0:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"

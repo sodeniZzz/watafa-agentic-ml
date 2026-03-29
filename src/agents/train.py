@@ -83,7 +83,7 @@ def should_continue_after_train_validation(state: PipelineState) -> str:
     if state["train_valid"]:
         return "tune"
     if state["train_attempts"] >= state["train_max_attempts"]:
-        logger.warning("Train failed after %s attempts, skipping to report", state["train_attempts"])
+        logger.warning("Train failed after %s attempts, early stop → report", state["train_attempts"])
         return "report"
     return "train"
 
@@ -118,8 +118,6 @@ def _generate_train_code(state: PipelineState, feedback: str):
 
 
 def run_train_agent(state: PipelineState) -> PipelineState:
-    logger.info("Train node started")
-
     new_attempt = state["train_attempts"] + 1
     logger.info("Train attempt %s", new_attempt)
 
@@ -130,7 +128,7 @@ def run_train_agent(state: PipelineState) -> PipelineState:
     stage_dir.mkdir(parents=True, exist_ok=True)
     code_path = stage_dir / f"code_attempt_{new_attempt}.py"
     code_path.write_text(code, encoding="utf-8")
-    logger.info("Train code saved to %s", code_path)
+    logger.info("Train code saved → %s", code_path)
 
     execution_result = run_python_code(code_path, work_dir=stage_dir, timeout=1800)
     duration = time.time() - start
@@ -155,7 +153,7 @@ def run_train_agent(state: PipelineState) -> PipelineState:
 
 
 def run_train_validator(state: PipelineState) -> PipelineState:
-    logger.info("Train validator started")
+    logger.info("Train validation started")
 
     valid = False
     feedback = []
@@ -182,7 +180,7 @@ def run_train_validator(state: PipelineState) -> PipelineState:
     feedback_text = "\n".join(feedback) if feedback else "Training looks good."
     state["train_report"].log_validation(valid, feedback_text)
 
-    logger.info("Train validation completed. Valid: %s", valid)
+    logger.info("Train validation: %s", "valid" if valid else "invalid")
     return {
         **state,
         "train_feedback": feedback_text,

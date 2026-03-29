@@ -1,13 +1,13 @@
-import os
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
 from src.graph import run_graph
-from src.logger.logger import setup_logging
+from src.logger.logger import setup_logging, log_header, format_duration
 from src.state import PipelineState, create_initial_state
 from src.utils.io_utils import ROOT_PATH
-from src.utils.kaggle_utils import prepare_kaggle_data
+from src.utils.kaggle_utils import get_kaggle_competition, prepare_kaggle_data
 from src.utils.guardrails import validate_csv
 from src.utils.rag import init_store
 
@@ -28,21 +28,24 @@ def bootstrap_run() -> PipelineState:
     setup_logging(run_dir)
 
     logger = logging.getLogger(__name__)
-    logger.info("Run directory: %s", run_dir)
 
     state = create_initial_state(run_dir)
     state.update(prepare_kaggle_data(ROOT_PATH / "data"))
+
+    data_files = sorted(f.name for f in (ROOT_PATH / "data").glob("*.csv"))
+    log_header(
+        "WATAFA Pipeline Started",
+        f"Run: {run_dir}",
+        f"Competition: {get_kaggle_competition()}",
+        f"Downloaded: {', '.join(data_files)}",
+        f"Target column (auto-detected): {state['target_column']}",
+    )
 
     for csv_file in (ROOT_PATH / "data").glob("*.csv"):
         csv_warnings = validate_csv(str(csv_file))
         if csv_warnings:
             for w in csv_warnings:
                 logger.warning("CSV guardrail [%s]: %s", csv_file.name, w)
-
-    logger.info("Train data: %s", state["train_path"])
-    logger.info("Test data: %s", state["test_path"])
-    logger.info("Sample submission: %s", state["sample_submission_path"])
-    logger.info("Target column: %s", state["target_column"])
 
     init_store()
     logger.info("RAG store initialized")
@@ -55,9 +58,11 @@ def run_pipeline() -> PipelineState:
     state = bootstrap_run()
 
     logger = logging.getLogger(__name__)
-    logger.info("Pipeline started")
+    t0 = time.monotonic()
     state = run_graph(state)
-    logger.info("Pipeline finished")
+    elapsed = time.monotonic() - t0
+
+    log_header(f"Pipeline finished in {format_duration(elapsed)}")
 
     return state
 
