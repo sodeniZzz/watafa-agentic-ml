@@ -77,8 +77,8 @@ The pipeline works normally with an empty `knowledge/` directory — RAG is sile
 Each pipeline run creates a timestamped directory in `artifacts/`. It contains:
 
 - `info.log` — full execution log with timestamps and log levels
-- `reports/benchmark_report.md` — final pipeline report (model comparison, metrics, stage summaries)
-- Per-stage subdirectories (`eda/`, `feature_engineering/`, `train/`, `tune/`, `submission/`) with generated code attempts, outputs, and stage reports
+- `reports/benchmark_report.md` — final pipeline report (model comparison, metrics, stage summaries, token usage per stage and total)
+- Per-stage subdirectories (`eda/`, `feature_engineering/`, `train/`, `tune/`, `submission/`) with generated code attempts, outputs, and stage reports (including token counts, duration, attempt history)
 
 Console output provides a structured overview of the pipeline progress with stage separators and timing.
 
