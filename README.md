@@ -1,122 +1,114 @@
-# <center>Workflow Agents for Tabular AutoFit & Analysis </center>
+# <center>Workflow Agents for Tabular AutoFit & Analysis</center>
 
 <p align="center">
   <a href="#about">About</a> •
   <a href="#pipeline-architecture">Pipeline Architecture</a> •
-  <a href="#retrieval-augmented-generation-rag">Retrieval-Augmented Generation (RAG)</a> •
-  <a href="#data-collection--submission">Data Collection & Submission</a> •
+  <a href="#retrieval-augmented-generation-rag">RAG</a> •
   <a href="#project-structure">Project Structure</a> •
   <a href="#how-to-use">How To Use</a> •
+  <a href="#monitoring">Monitoring</a> •
   <a href="#license">License</a>
 </p>
 
 > [!NOTE]
->
-> This repository is a **student project** for the 2026 HSE/MTS LLM-based Intelligent Agent Systems course.
+> This repository is a student project for the 2026 HSE/MTS LLM-based Intelligent Agent Systems course.
 
 ## About
 
-LLM-driven multi‑agent pipeline that automates Kaggle tabular competitions end‑to‑end: EDA, feature engineering, model training, hyperparameter tuning, ensemble selection, Kaggle submission, and benchmark reporting.
+WATAFA is a multi-agent pipeline that solves Kaggle tabular competitions end-to-end without manual intervention. It supports regression, binary classification, and multiclass classification — the problem type is detected automatically from the data.
 
-Built with LangGraph. Each pipeline stage is an autonomous agent that generates and executes Python code, validates results, and retries on failure (up to 3 attempts). Includes security guardrails, RAG‑powered context from notebooks/docs, and automatic early stopping when critical stages fail.
+The system is built on LangGraph. Each pipeline stage is a separate agent that prompts an LLM to generate Python code, runs it in a subprocess, checks the result through a validator, and retries with feedback if something goes wrong. Relevant context from public Kaggle notebooks can be injected into prompts via a FAISS-based RAG module.
 
-### Multi‑task & Multi‑model Support
+Everything is automated: data download from Kaggle, EDA, feature engineering, model training and benchmarking, hyperparameter tuning, and submission of predictions.
 
-The pipeline automatically detects the problem type from the EDA report and adapts its behaviour:
-
-- **Regression** – uses MSE, MAE, R² metrics; trains models like RandomForest, XGBoost, LightGBM, CatBoost, Ridge, etc.
-- **Binary classification** – uses Accuracy, F1, ROC‑AUC, Precision, Recall; includes LogisticRegression, SVC, and tree‑based classifiers.
-- **Multiclass classification** – uses Macro/Weighted F1.
-
-During the **train (exploration) phase**, all supported models are evaluated with **5‑fold cross‑validation** using default (sensible) hyperparameters. The results are ranked, and the best model (by primary metric) is automatically selected for the subsequent **tuning phase** (Optuna). This allows fair comparison between different architectures without manual intervention.
 
 ## Pipeline Architecture
-
-The pipeline is a **directed graph** where each node is a specialised agent. All communication happens through a shared `PipelineState` (typed dictionary) that holds file paths, metrics, feedback, attempt counters, and validation flags.
 
 <img width="2570" height="531" alt="flow" src="https://github.com/user-attachments/assets/925a3c47-90ce-4f1e-a2b8-1882527b3c8b" />
 
 ### What each node does
 
 | Node | Responsibility | How it works | After success |
-|------|----------------|---------------|----------------|
-| `eda` | Load data, detect task type (regression/classification), compute statistics, identify missing values, outliers, and data drift. | Generates Python code from a prompt, executes it in a sandbox, saves stdout to `eda_output.txt`. | Moves to `eda_validator`. |
-| `eda_validator` | Validate EDA output. Checks for execution errors, required sections, and output quality using an LLM. | Reads `eda_output.txt`, asks an LLM to judge completeness, returns `eda_valid` + `eda_feedback`. | If valid → Feature Engineering; else → retry EDA. |
-| `feature_engineering` | Create new features (ratios, date parts, group aggregates, frequency encodings). | Generates code that reads train/test, applies transformations, saves processed CSVs. | Moves to `fe_validator`. |
-| `fe_validator` | Verify that processed files exist, are non‑empty, and no code traceback occurred. | Checks file existence, size, and last attempt’s return code. | If valid → Train; else → retry FE. |
-| `train` | Train multiple model families (RandomForest, XGBoost, LightGBM, CatBoost, etc.) with 5‑fold CV, report mean ± std metrics. | Generates code that loads processed data, runs cross‑validation, saves `exploration_metrics.json`. | Moves to `train_validator`. |
-| `train_validator` | Ensure exploration metrics were produced. Reads `exploration_metrics.json`. | Validates that the JSON exists and contains data. | If valid → Tune; else → retry Train (up to 3 times). On final failure → skip to Report. |
-| `tune` | Select the best model from exploration, then run Optuna hyperparameter optimisation (40 trials) with a hold‑out validation split. | Generates code that reads exploration metrics, picks top model, defines search space, runs Optuna, trains final model on all data, saves model bundle (model + feature columns + fill values + best params). | Moves to `tune_validator`. |
-| `tune_validator` | Check that the final model bundle was created and no execution errors occurred. | Verifies `model.joblib` exists and return code is zero. | If valid → Submission; else → retry Tune (up to 3 times). On final failure → skip to Report. |
-| `submission` | Build submission CSV using the tuned model and send it to Kaggle. | Loads model bundle, applies to test data, saves CSV, calls Kaggle API. | Moves to Report. |
-| `report` | Generate a final Markdown benchmark report. | Reads all stage reports, exploration metrics, and uses an LLM to format a clean report with tables. | Ends the pipeline. |
+|------|----------------|--------------|---------------|
+| `eda` | Load data, detect task type, compute statistics, identify missing values and outliers | Generates and executes Python code, saves stdout to `eda_output.txt` | `eda_validator` |
+| `eda_validator` | Validate EDA output quality and completeness using an LLM as a judge | Reads `eda_output.txt`, asks LLM to evaluate, returns `valid` + `feedback` | valid: Feature Engineering; invalid: retry EDA |
+| `feature_engineering` | Create new features: date parts, group aggregates, frequency encodings, ratios | Generates code that reads train/test, applies transformations, saves processed CSVs | `fe_validator` |
+| `fe_validator` | Verify processed files exist, are non-empty, contain only numeric columns, and no traceback occurred | Checks file existence, size, dtypes, and return code | valid: Train; invalid: retry FE |
+| `train` | Benchmark multiple model families (RandomForest, XGBoost, LightGBM, CatBoost, etc.) with 5-fold CV | Generates code that runs cross-validation and saves `exploration_metrics.json` with mean +/- std per model | `train_validator` |
+| `train_validator` | Ensure exploration metrics were produced | Validates that `exploration_metrics.json` exists and contains data | valid: Tune; invalid: retry Train or early stop |
+| `tune` | Select best model from exploration, run Optuna HPO (40 trials, hold-out split), attempt ensemble (Voting + Stacking from top-3) | Generates code that optimises hyperparameters and saves final `model.joblib` bundle | `tune_validator` |
+| `tune_validator` | Verify the model bundle was created and execution succeeded | Checks `model.joblib` exists and return code is zero | valid: Submission; invalid: retry Tune or early stop |
+| `submission` | Build submission CSV using the tuned model and send it to Kaggle | Loads model bundle, applies to test data, saves CSV, calls Kaggle API | `report` |
+| `report` | Generate a final Markdown benchmark report summarising all stages | Reads all stage reports and metrics, uses LLM to format a structured report | END |
 
-### Loops (retry mechanisms)
+### Automation
 
-Each work node has a corresponding validator. The graph defines **conditional edges** that implement retry loops:
+- Data is downloaded from Kaggle automatically on pipeline start via the Kaggle API
+- The target column is auto-detected as the column present in `train.csv` but absent in `test.csv`
+- After tuning, predictions are submitted to Kaggle without any manual step
 
-- **EDA loop** – if validator fails, go back to `eda` (max 3 attempts).
-- **Feature Engineering loop** – if validator fails, go back to `feature_engineering` (max 3 attempts).
-- **Train loop** – if validator fails, go back to `train` (max 3 attempts).
-- **Tune loop** – if validator fails, go back to `tune` (max 3 attempts).
+### Validation & Retry
 
-After the maximum attempts, the pipeline **does not block** – it continues to the next stage or, for critical failures (train/tune), jumps directly to the `report` node, which clearly marks the failed stage.
+Each agent node has a corresponding validator connected through conditional edges in the graph:
 
-### Security handling
+- When validation fails, the validator collects feedback (stderr, missing files, dtype errors, etc.) and passes it back to the agent. The agent regenerates code using this feedback on the next attempt.
+- The EDA validator uses an LLM to judge output quality and completeness. All other validators (FE, Train, Tune) use heuristic checks: return code, file existence, content validation.
+- Each stage allows up to 3 attempts (configurable in `state.py`).
+- For critical stages (train, tune), exhausting all attempts triggers an early stop — the pipeline jumps directly to `report` instead of crashing, and the failed stage is marked in the benchmark report.
 
-- **Sandboxed execution** – All generated code runs in an isolated subprocess with a timeout (30–1800s) and captured stdout/stderr.
-- **Path whitelisting** – Code only accesses explicitly provided file paths; other system paths are blocked.
-- **Dangerous module blacklist** – Imports like `os.system`, `subprocess`, `eval`, `exec`, `open` (outside allowed dirs) are rejected before execution.
-- **Resource limits** – Timeout prevents infinite loops; no direct memory/CPU limits, but the subprocess environment is minimal.
+### Security & Guardrails
 
+Two types of input are validated before the pipeline proceeds:
+
+1. Downloaded CSV files from Kaggle are scanned for formula injection (`=`, `+`, `-`, `@` cell prefixes) and prompt injection patterns.
+2. All LLM-generated code is analysed via AST before execution. Dangerous imports (e.g. `subprocess`, `socket`), calls (e.g. `eval`, `exec`, `os.system`), and OS-level operations are blocked. Code that fails the check is never executed. Each subprocess also has a configurable timeout (30-1800 s).
 
 ## Retrieval-Augmented Generation (RAG)
 
-### Knowledge Base Contents
-The RAG module indexes **public Kaggle notebooks** from **similar competitions** (e.g., previous real estate prediction challenges, regression tasks with tabular data). Each notebook is converted to text, chunked, embedded, and stored in a **FAISS vector database** .
+The EDA and Feature Engineering agents can use context from public Kaggle notebooks and markdown docs placed in the `knowledge/` directory. Before generating code, the agent runs a semantic search over a FAISS index of this knowledge base and appends the top-3 most relevant excerpts to the LLM prompt.
 
-### When & How It Is Used
-The RAG context is injected **only into the EDA and Feature Engineering prompts** . When the agent generates code for these stages, it first performs a semantic search over the knowledge base using the column names and task description as a query. The top‑3 most relevant notebook excerpts are appended to the prompt, providing the LLM with proven examples of similar data transformations, feature creation, and EDA patterns .
+The FAISS index is built once and cached to disk. A SHA-256 hash of the knowledge files is stored alongside the index — if any file is added, removed, or modified, the index is rebuilt automatically on the next run.
 
-### Technical Implementation
-- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` (384‑dim, fast & compact)
-- **Vector Store**: FAISS index built offline from `knowledge/` directory (`.ipynb`, `.md` files)
-- **Retrieval**: Cosine similarity search, top‑k = 3
+The pipeline works normally with an empty `knowledge/` directory — RAG is silently disabled.
 
 
-## Data Collection & Submission
+## Monitoring
 
-### Automatic Data Download
-The pipeline automatically downloads competition data via the **Kaggle API** . Upon initialization, the agent uses the official `kaggle` Python package to authenticate (using `KAGGLE_USERNAME` and `KAGGLE_API_KEY` from `.env`) and downloads `train.csv`, `test.csv`, and `sample_submission.csv` directly from the competition page . No manual data preparation is required.
+Each pipeline run creates a timestamped directory in `artifacts/`. It contains:
 
-### Automatic Submission
-After the tuned model generates predictions, the pipeline automatically submits the resulting `submission.csv` to Kaggle using `api.competition_submit()` . The submission message includes a timestamp and pipeline version for traceability. The CLI command `kaggle competitions submit -f submission.csv -m "..."` is executed in a subprocess, and the return code is logged. This enables fully unattended participation in Kaggle competitions .
+- `info.log` — full execution log with timestamps and log levels
+- `reports/benchmark_report.md` — final pipeline report (model comparison, metrics, stage summaries)
+- Per-stage subdirectories (`eda/`, `feature_engineering/`, `train/`, `tune/`, `submission/`) with generated code attempts, outputs, and stage reports
+
+Console output provides a structured overview of the pipeline progress with stage separators and timing.
 
 
 ## Project Structure
 
 ```text
 watafa-agentic-ml/
-├── data/                        # Kaggle competition data
-├── knowledge/                   # RAG knowledge base (.ipynb, .md)
-├── artifacts/                   # Pipeline run outputs
+├── data/                        # Kaggle competition data (auto-downloaded)
+├── knowledge/                   # RAG knowledge base (.ipynb, .md files)
+├── artifacts/                   # Timestamped pipeline run outputs
 ├── src/
 │   ├── agents/
-│   │   ├── eda.py               # Exploratory data analysis agent
+│   │   ├── eda.py
 │   │   ├── feature_engineering.py
-│   │   ├── train.py             # Model exploration & benchmarking
-│   │   ├── tune.py              # Optuna tuning
-│   │   ├── submission.py        # Kaggle submission
-│   │   └── report.py            # Benchmark report generation
+│   │   ├── train.py
+│   │   ├── tune.py
+│   │   ├── submission.py
+│   │   └── report.py
 │   ├── utils/
-│   │   ├── code_utils.py        # Code extraction & execution
-│   │   ├── guardrails.py        # Security & CSV validation
-│   │   ├── io_utils.py
-│   │   ├── kaggle_utils.py
-│   │   ├── llm_utils.py
-│   │   ├── metrics_utils.py
-│   │   └── rag.py               # FAISS-based RAG store
+│   │   ├── code_utils.py        # Code extraction & subprocess execution
+│   │   ├── guardrails.py        # AST code validation & CSV injection checks
+│   │   ├── io_utils.py          # File I/O helpers
+│   │   ├── kaggle_utils.py      # Kaggle API integration
+│   │   ├── llm_utils.py         # LLM client configuration
+│   │   ├── metrics_utils.py     # Stage metrics tracking
+│   │   └── rag.py               # FAISS vector store
 │   ├── logger/
+│   │   ├── logger.py            # Logging setup
+│   │   └── logger_config.json
 │   ├── graph.py                 # LangGraph pipeline definition
 │   └── state.py                 # Pipeline state schema
 ├── run.py                       # Entry point
@@ -146,10 +138,20 @@ watafa-agentic-ml/
    cp .env.example .env
    ```
 
+   The pipeline uses the following models (strongly recommended to keep the defaults, other models may produce unexpected results):
+   - `minimax/minimax-m2.7` (LLM, via OpenRouter) — cost-effective model that ranks #2 in coding on the OpenRouter leaderboard
+   - `openai/text-embedding-3-small` (embeddings for RAG, via OpenRouter) — best price-to-quality ratio among OpenAI embedding models
+
 4. Run the pipeline:
 
    ```bash
    python run.py
+   ```
+
+5. After the run completes, check the benchmark report:
+
+   ```
+   artifacts/<timestamp>/reports/benchmark_report.md
    ```
 
 
