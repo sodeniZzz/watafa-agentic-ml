@@ -27,7 +27,7 @@ The pipeline automatically detects the problem type from the EDA report and adap
 
 - **Regression** – uses MSE, MAE, R² metrics; trains models like RandomForest, XGBoost, LightGBM, CatBoost, Ridge, etc.
 - **Binary classification** – uses Accuracy, F1, ROC‑AUC, Precision, Recall; includes LogisticRegression, SVC, and tree‑based classifiers.
-- **Multiclass classification** – uses Macro/Weighted F1; sets `multi_class="multinomial"` for linear models.
+- **Multiclass classification** – uses Macro/Weighted F1.
 
 During the **train (exploration) phase**, all supported models are evaluated with **5‑fold cross‑validation** using default (sensible) hyperparameters. The results are ranked, and the best model (by primary metric) is automatically selected for the subsequent **tuning phase** (Optuna). This allows fair comparison between different architectures without manual intervention.
 
